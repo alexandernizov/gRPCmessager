@@ -1,0 +1,13 @@
+env: "local"
+
+grpc:
+  port: 50001
+  request_timeout: 5s
+
+chats:
+  maximum_chats_count: 5
+  messages_per_chat: 2
+  chat_ttl: 30s
+
+user:
+  session_ttl: 30m
