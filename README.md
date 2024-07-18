@@ -1,2 +1,0 @@
-# gRPCmessager
-Homework

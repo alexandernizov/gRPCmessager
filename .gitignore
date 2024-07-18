@@ -1,0 +1,51 @@
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# IDE VS Code
+.vscode/
+.history/
+
+# Файлы IDE
+.idea/
+
+# Бинарные файлы Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Кэшированные файлы Go
+*.out
+
+# Пакеты Go
+vendor/
+
+# Логи
+*.log
+
+# Сборка
+_build/
+build/
+
+# Теги и отладочные файлы
+*.swp
+*.swo
+*.swn
+*.bak
+*.tmp
+
+# Объекты Go
+*.o
+*.a
+
+# Дамп профилирования
+*.pprof
+
+# Директории модуля Go
+go.sum
+go.work.sum
+
+# Кэшированная директория модуля Go
+pkg/
