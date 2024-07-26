@@ -10,6 +10,7 @@ services:
     depends_on:
       - postgres
       - web
+      - prometheus
     environment:
       - DB_PASSWORD=password
 
@@ -39,12 +40,7 @@ services:
     container_name: nginx
     image: nginx
     volumes:
-    - ./build/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    - ./build/nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./build/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./build/nginx/default.conf:/etc/nginx/conf.d/default.conf
     ports:
-    - 80:80
-
-  prometheus:
-    image: prom/prometheus:latest
-    volumes:
-      - ./prometheus.yaml:/etc/prometheus/prometheus.yaml
+      - 80:80
