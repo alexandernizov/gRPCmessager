@@ -1,0 +1,34 @@
+env: "local"
+
+grpc_auth:
+  address: 0.0.0.0
+  port: 50001
+  request_timeout: 5s
+
+grpc_chat:
+  address: 0.0.0.0
+  port: 50002
+  request_timeout: 5s
+
+chat:
+  maximum_chats_count: 5
+  messages_per_chat: 2
+  chat_ttl: 30s
+
+user:
+  jwt_ttl: 1h
+  jwt_secret: adshasdhajsduasdjansdamzxnnzxjhahdquwendxzc82
+
+postgres:
+  address: "0.0.0.0"
+  port: "5432"
+  user: "postgres"
+  password: "password"
+  dbname: "postgres"
+  migrations_path: ./migrations
+
+redis:
+  address: "0.0.0.0"
+  port: "6379"
+  password: ""
+  db: 0

@@ -1,0 +1,17 @@
+FROM alpine:latest
+
+WORKDIR /root/
+
+COPY chat-app .
+
+COPY ./configs/prod.yaml .
+
+COPY ./wait-for-redis.sh .
+
+RUN apk --update add redis
+
+RUN chmod +x wait-for-redis.sh
+
+EXPOSE 50002
+
+CMD ["./chat-app", "-config", "./prod.yaml"]

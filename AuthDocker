@@ -1,0 +1,20 @@
+FROM alpine:latest
+
+WORKDIR /root/
+
+COPY auth-app .
+
+COPY ./configs/prod.yaml .
+
+COPY ./wait-for-postgres.sh .
+
+COPY ./migrations/ ./migrations/
+
+RUN apk update
+RUN apk add postgresql-client
+
+RUN chmod +x wait-for-postgres.sh
+
+EXPOSE 50001
+
+CMD ["./auth-app", "-config", "./prod.yaml"]

@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package authpb;
+
+option go_package="auth/authpb";
+
+service Auth {
+    rpc Register(RegisterReq) returns (RegisterResp);
+    rpc Login(LoginReq) returns (LoginResp);
+    rpc Validate(ValidateReq) returns (ValidateResp);
+}
+
+message RegisterReq {
+    string login = 1;
+    string password = 2;
+}
+
+message RegisterResp {
+    bool registred = 1;
+}
+
+message LoginReq {
+    string login = 1;
+    string password = 2;
+}
+
+message LoginResp {
+    string token = 1;
+}
+
+message ValidateReq {
+    string token = 1;
+}
+
+message ValidateResp {
+    bool valid = 1;
+}
