@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  auth-app:
+  messanger:
     container_name: auth
     build:
       context: .
@@ -10,7 +10,6 @@ services:
     depends_on:
       - postgres
       - web
-      - prometheus
     environment:
       - DB_PASSWORD=password
 

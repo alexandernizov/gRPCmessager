@@ -8,10 +8,12 @@ import (
 
 	"github.com/alexandernizov/grpcmessanger/internal/config"
 	gauth "github.com/alexandernizov/grpcmessanger/internal/grpc/auth"
+	gchat "github.com/alexandernizov/grpcmessanger/internal/grpc/chat"
 	"github.com/alexandernizov/grpcmessanger/internal/lib/logger/sl"
 	sauth "github.com/alexandernizov/grpcmessanger/internal/services/auth"
-	authstorage "github.com/alexandernizov/grpcmessanger/storage/authStorage"
-	"github.com/alexandernizov/grpcmessanger/storage/authStorage/postgres"
+	schat "github.com/alexandernizov/grpcmessanger/internal/services/chat"
+	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
+	"github.com/alexandernizov/grpcmessanger/internal/storage/redis"
 )
 
 const (
@@ -29,11 +31,27 @@ func main() {
 
 	log.Info("server params",
 		slog.String("enviroment", cfg.Env),
-		slog.Int("port", cfg.AuthGrpc.Port),
+		slog.Int("port", cfg.ChatGrpc.Port),
 		slog.Duration("jwt ttl", cfg.User.JwtTTL),
 	)
 
 	//Инициилизировать сторедж
+	//1. Редис
+	redisChat, err := redis.NewRedisChatStorage(
+		log,
+		cfg.Redis.Addr,
+		cfg.Redis.Port,
+		cfg.Redis.Password,
+		cfg.Redis.Db,
+		cfg.Chat.MaxChatsCount,
+		cfg.Chat.MaxMessagesPerChat,
+	)
+
+	if err != nil {
+		panic("cant initialize redis storage")
+	}
+
+	//2. Постгрес
 	postgresAuth, err := postgres.NewPostgresAuthStorage(
 		log,
 		cfg.Postgres.Address,
@@ -49,14 +67,16 @@ func main() {
 	}
 	defer postgresAuth.Close()
 
-	storage := authstorage.NewStorage(postgresAuth)
-
 	//Инициилизировать сервисный слой
-	service := sauth.NewAuthService(log, storage, cfg.User.JwtTTL, []byte(cfg.User.JwtSecret))
+	chatService := schat.NewChatService(log, redisChat, cfg.Chat.ChatTTL)
+	authService := sauth.NewAuthService(log, postgresAuth, cfg.User.JwtTTL, []byte(cfg.User.JwtSecret))
 
 	//Запустить приложение
-	grpcServer := gauth.NewGrpcServer(log, cfg.AuthGrpc.Address, cfg.AuthGrpc.Port, cfg.AuthGrpc.RequestTimeout, service)
-	grpcServer.Start()
+	grpcChatServer := gchat.NewGrpcServer(log, cfg.ChatGrpc.Address, cfg.ChatGrpc.Port, cfg.ChatGrpc.RequestTimeout, chatService, cfg.User.JwtSecret)
+	grpcChatServer.Start()
+
+	grpcAuthServer := gauth.NewGrpcServer(log, cfg.AuthGrpc.Address, cfg.AuthGrpc.Port, cfg.AuthGrpc.RequestTimeout, authService)
+	grpcAuthServer.Start()
 
 	//Остановить приложение
 	stop := make(chan os.Signal, 1)
@@ -65,7 +85,8 @@ func main() {
 	<-stop
 
 	log.Info("stopping application")
-	grpcServer.Stop()
+	grpcAuthServer.Stop()
+	grpcChatServer.Stop()
 	log.Info("application stopped")
 }
 

@@ -1,11 +1,8 @@
-grpc-gen:
+gen:
 	go generate ./...
 
-run-auth:
-	go run cmd/authapp/main.go
-
-run-chat:
-	go run cmd/chatapp/main.go
+run:
+	go run cmd/messanger/main.go
 
 migrate-up:
 	migrate -path ./migrations -database 'postgres://postgres:password@localhost:5432/postgres?sslmode=disable' up
