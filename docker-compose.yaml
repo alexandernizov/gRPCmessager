@@ -2,12 +2,13 @@ version: '3.8'
 
 services:
   messanger:
-    container_name: auth
+    container_name: messanger-app
     build:
       context: .
-      dockerfile: AuthDocker
+      dockerfile: Dockerfile
     command: ./wait-for-postgres.sh postgres ./auth-app -config prod.yaml
     depends_on:
+      - redis
       - postgres
       - web
     environment:
@@ -19,16 +20,6 @@ services:
     image: postgres:latest
     environment:
       - POSTGRES_PASSWORD=password
-
-  chat-app:
-    container_name: chat
-    build:
-      context: .
-      dockerfile: ChatDocker
-    command: ./wait-for-redis.sh redis ./chat-app -config prod.yaml
-    depends_on:
-      - redis
-      - web
 
   redis:
     container_name: redis

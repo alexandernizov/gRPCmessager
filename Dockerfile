@@ -2,11 +2,9 @@ FROM alpine:latest
 
 WORKDIR /root/
 
-COPY auth-app .
+COPY messanger-app .
 
 COPY ./configs/prod.yaml .
-
-COPY ./wait-for-postgres.sh .
 
 COPY ./migrations/ ./migrations/
 
@@ -17,4 +15,4 @@ RUN chmod +x wait-for-postgres.sh
 
 EXPOSE 50001
 
-CMD ["./auth-app", "-config", "./prod.yaml"]
+CMD ["./messanger", "-config", "./prod.yaml"]

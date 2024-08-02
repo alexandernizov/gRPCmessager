@@ -8,15 +8,17 @@ import (
 	"time"
 
 	"github.com/alexandernizov/grpcmessanger/internal/domain"
-	"github.com/alexandernizov/grpcmessanger/internal/lib/jwt"
-	"github.com/alexandernizov/grpcmessanger/internal/lib/logger/sl"
+	"github.com/alexandernizov/grpcmessanger/internal/pkg/jwt"
+	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
+	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthStorage interface {
-	NewUser(ctx context.Context, user domain.User) (bool, error)
-	GetUser(ctx context.Context, login string) (domain.User, error)
+	WithinTransaction(ctx context.Context, tFunc func(ctx context.Context) error) error
+	CreateUser(ctx context.Context, user domain.User) (*domain.User, error)
+	GetUserByLogin(ctx context.Context, login string) (*domain.User, error)
 }
 
 type AuthService struct {
@@ -31,61 +33,77 @@ type JwtParams struct {
 	secret []byte
 }
 
+var (
+	ErrUserAlreadyExsist  = errors.New("user is already exist")
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrFailLogin          = errors.New("login failed")
+)
+
 func NewAuthService(log *slog.Logger, authStorage AuthStorage, ttl time.Duration, secret []byte) *AuthService {
 	return &AuthService{log: log, authStorage: authStorage, jwtParams: JwtParams{ttl, secret}}
 }
 
-func (a *AuthService) Register(ctx context.Context, login, password string) (bool, error) {
+func (a *AuthService) Register(ctx context.Context, login, password string) (*domain.User, error) {
 	const op = "auth.Register"
 	log := a.log.With(slog.String("op", op))
 
+	//1. Generate user
 	passHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		log.Error("failed to generate password hash", sl.Err(err))
-
-		return false, fmt.Errorf("%s, %w", op, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
 	}
 
-	var user domain.User
-	user.Uuid = uuid.New()
-	user.Login = login
-	user.PasswordHash = passHash
+	user := domain.User{Uuid: uuid.New(), Login: login, PasswordHash: passHash}
 
-	result, err := a.authStorage.NewUser(ctx, user)
+	//2. Invoke in same transaction
+	fn := func(fnCtx context.Context) error {
+		//Check if user exists
+		_, err := a.authStorage.GetUserByLogin(fnCtx, user.Login)
+		if !errors.Is(err, postgres.ErrUserNotFound) {
+			return ErrUserAlreadyExsist
+		}
+		//If user doesn't exist then create
+		_, err = a.authStorage.CreateUser(fnCtx, user)
+		if err != nil {
+			log.Error("error according user creating", sl.Err(err))
+			return err
+		}
+		return nil
+	}
+
+	err = a.authStorage.WithinTransaction(ctx, fn)
 	if err != nil {
-		log.Error("failed to save user", sl.Err(err))
-		return false, fmt.Errorf("%s: %w", op, err)
+		return nil, err
 	}
-
-	return result, nil
+	//3. Return result
+	return &user, nil
 }
 
 func (a *AuthService) Login(ctx context.Context, login, password string) (string, error) {
-	const op = "auth.Register"
+	const op = "auth.Login"
 	log := a.log.With(slog.String("op", op))
 
-	user, err := a.authStorage.GetUser(ctx, login)
+	user, err := a.authStorage.GetUserByLogin(ctx, login)
 	if err != nil {
-		return "", err
-	}
-	if user.Uuid == uuid.Nil {
-		return "", errors.New("user not found")
+		return "", fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(password)); err != nil {
-		log.Info("invalid credentials", sl.Err(err))
-		return "", fmt.Errorf("%s: %w", op, errors.New("invalid credentionals"))
+		log.Info("attempting to login with incorrect password")
+		return "", fmt.Errorf("%w", ErrInvalidCredentials)
 	}
 
-	token, err := jwt.NewToken(user, a.jwtParams.ttl, a.jwtParams.secret)
+	token, err := jwt.NewToken(*user, a.jwtParams.ttl, a.jwtParams.secret)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", ErrFailLogin, err)
 	}
 
 	return token, nil
 }
 
 func (a *AuthService) Validate(ctx context.Context, token string) (bool, error) {
-	result, err := jwt.ValidateToken(token, a.jwtParams.secret)
-	return result, err
+	return false, nil
+	// result, err := jwt.ValidateToken(token, a.jwtParams.secret)
+	// return result, err
 }

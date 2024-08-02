@@ -1,13 +1,8 @@
 env: "local"
 
-grpc_auth:
-  address: 0.0.0.0
-  port: 50001
-  request_timeout: 5s
-
-grpc_chat:
-  address: 0.0.0.0
-  port: 50002
+grpc:
+  address: "0.0.0.0"
+  port: "50001"
   request_timeout: 5s
 
 chat:
@@ -20,12 +15,11 @@ user:
   jwt_secret: adshasdhajsduasdjansdamzxnnzxjhahdquwendxzc82
 
 postgres:
-  address: "0.0.0.0"
+  host: "0.0.0.0"
   port: "5432"
   user: "postgres"
   password: "password"
   dbname: "postgres"
-  migrations_path: ./migrations
 
 redis:
   address: "0.0.0.0"

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package chatpb;
 
-option go_package="chat/chatpb";
+option go_package="gen/chatpb";
 
 service Chat {
     rpc NewChat(NewChatReq) returns (NewChatResp);
@@ -10,14 +10,9 @@ service Chat {
     rpc ChatHistory(ChatHistoryReq) returns (ChatHistoryResp);
 }
 
-enum ReadOnly {
-    FALSE = 0;
-    TRUE = 1;
-}
-
 message NewChatReq {
-    string Token = 1;
-    ReadOnly readonly = 2;
+    string token = 1;
+    bool readonly = 2;
     int64 ttlSecs = 3;
 }
 
@@ -26,7 +21,7 @@ message NewChatResp {
 }
 
 message NewMessageReq {
-    string Token = 1;
+    string token = 1;
     string chatUuid = 2;
     string message = 3;
 }
@@ -36,7 +31,7 @@ message NewMessageResp {
 }
 
 message ChatHistoryReq {
-    string Token = 1;
+    string token = 1;
     string uuid = 2;
 }
 

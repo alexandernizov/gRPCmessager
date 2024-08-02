@@ -1,17 +1,18 @@
-package auth
+package grpc
 
 import (
 	"context"
 
-	"github.com/alexandernizov/grpcmessanger/internal/grpc/auth/authpb"
+	"github.com/alexandernizov/grpcmessanger/api/gen/authpb"
+	"github.com/alexandernizov/grpcmessanger/internal/domain"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type AuthProvider interface {
-	Register(ctx context.Context, login, password string) (bool, error)
+	Register(ctx context.Context, login, password string) (*domain.User, error)
 	Login(ctx context.Context, login, password string) (string, error)
-	Validate(ctx context.Context, token string) (bool, error)
 }
 
 type AuthServer struct {
@@ -20,7 +21,7 @@ type AuthServer struct {
 }
 
 func (a *AuthServer) Register(ctx context.Context, req *authpb.RegisterReq) (*authpb.RegisterResp, error) {
-	//Validate request
+	//Validate
 	if req.Login == "" || req.Password == "" {
 		return nil, status.Error(codes.InvalidArgument, "login and password is required")
 	}
@@ -30,11 +31,11 @@ func (a *AuthServer) Register(ctx context.Context, req *authpb.RegisterReq) (*au
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	//Send response
-	return &authpb.RegisterResp{Registred: result}, nil
+	return &authpb.RegisterResp{Registred: (result.Uuid != uuid.Nil)}, nil
 }
 
 func (a *AuthServer) Login(ctx context.Context, req *authpb.LoginReq) (*authpb.LoginResp, error) {
-	//Validate request
+	//Validate
 	if req.Login == "" || req.Password == "" {
 		return nil, status.Error(codes.InvalidArgument, "login and password is required")
 	}
@@ -43,21 +44,6 @@ func (a *AuthServer) Login(ctx context.Context, req *authpb.LoginReq) (*authpb.L
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-
 	//Send response
 	return &authpb.LoginResp{Token: token}, nil
-}
-func (a *AuthServer) Validate(ctx context.Context, req *authpb.ValidateReq) (*authpb.ValidateResp, error) {
-	//Validate request
-	if req.Token == "" {
-		return nil, status.Error(codes.InvalidArgument, "jwt token is required")
-	}
-	//Get result
-	result, err := a.Provider.Validate(ctx, req.Token)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-
-	//Send response
-	return &authpb.ValidateResp{Valid: result}, nil
 }

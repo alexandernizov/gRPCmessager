@@ -2,12 +2,11 @@ syntax = "proto3";
 
 package authpb;
 
-option go_package="auth/authpb";
+option go_package="gen/authpb";
 
 service Auth {
     rpc Register(RegisterReq) returns (RegisterResp);
     rpc Login(LoginReq) returns (LoginResp);
-    rpc Validate(ValidateReq) returns (ValidateResp);
 }
 
 message RegisterReq {
@@ -26,12 +25,4 @@ message LoginReq {
 
 message LoginResp {
     string token = 1;
-}
-
-message ValidateReq {
-    string token = 1;
-}
-
-message ValidateResp {
-    bool valid = 1;
 }

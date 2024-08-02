@@ -8,11 +8,8 @@ import (
 	"log/slog"
 
 	"github.com/alexandernizov/grpcmessanger/internal/domain"
-
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
-
+	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -21,83 +18,151 @@ type Postgres struct {
 	db  *sql.DB
 }
 
-func NewPostgresAuthStorage(log *slog.Logger, host, port, user, password, dbname, migrationPath string) (*Postgres, error) {
+type PostgresOptions struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	DBname   string
+}
+
+var (
+	ErrNoConnection = errors.New("can't establish connection to db")
+	ErrBeginTx      = errors.New("can't begin transaction")
+	ErrCommitTx     = errors.New("can't commit transaction")
+	ErrRollbackTx   = errors.New("can't rollback transaction")
+	ErrTxExec       = errors.New("can't execute transaction")
+	ErrUserNotFound = errors.New("user is not found")
+)
+
+func New(log *slog.Logger, opt PostgresOptions) (*Postgres, error) {
 	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		host, port, user, password, dbname)
+		opt.Host,
+		opt.Port,
+		opt.User,
+		opt.Password,
+		opt.DBname)
 
 	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
-		return nil, fmt.Errorf("could not open db connection: %v", err)
-	}
-
-	connectionString := fmt.Sprintf("postgres://%s:%s@%s:%s/postgres?sslmode=disable", user, password, host, port)
-	err = initMigrate(migrationPath, connectionString)
-	if err != nil {
-		return nil, fmt.Errorf("migrations failed: %w", err)
+		return nil, fmt.Errorf("can't open Postgres DB: %w", ErrNoConnection)
 	}
 
 	err = db.Ping()
 	if err != nil {
-		return nil, fmt.Errorf("could not connect to db: %w", err)
+		return nil, fmt.Errorf("can't ping Postgres DB: %w", ErrNoConnection)
 	}
 
 	return &Postgres{log: log, db: db}, nil
 }
 
-func initMigrate(migrationsPath string, connectionString string) error {
-	m, err := migrate.New(
-		"file://"+migrationsPath,
-		connectionString,
-	)
+func (p *Postgres) Close() error {
+	err := p.db.Close()
 	if err != nil {
 		return err
 	}
-
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return err
-	}
-
 	return nil
 }
 
-func (p *Postgres) Close() {
-	p.db.Close()
+type txKey struct{}
+
+func injectTx(ctx context.Context, tx *sql.Tx) context.Context {
+	return context.WithValue(ctx, txKey{}, tx)
 }
 
-func (p *Postgres) NewUser(ctx context.Context, user domain.User) (bool, error) {
+func extractTx(ctx context.Context) *sql.Tx {
+	tx, ok := ctx.Value(txKey{}).(*sql.Tx)
+	if !ok {
+		return nil
+	}
+	return tx
+}
+
+func (p *Postgres) getTx(ctx context.Context) (*sql.Tx, error) {
+	tx := extractTx(ctx)
+	if tx == nil {
+		return p.db.Begin()
+	}
+	return tx, nil
+}
+
+func (p *Postgres) WithinTransaction(ctx context.Context, tFunc func(ctx context.Context) error) error {
 	tx, err := p.db.Begin()
 	if err != nil {
-		return false, fmt.Errorf("could not insert user: %w", err)
+		p.log.Error("begin transaction: %v", sl.Err(err))
+		return fmt.Errorf("%w: %w", ErrBeginTx, err)
 	}
 
-	query := "SELECT u.uuid FROM users as u WHERE u.login = $1"
-	row := tx.QueryRow(query, user.Login)
-
-	var login string
-	row.Scan(&login)
-	if len(login) > 0 {
-		tx.Rollback()
-		return false, fmt.Errorf("could not insert user: %w", errors.New("user already exists"))
-	}
-
-	query = `INSERT INTO users (uuid, login, password) VALUES ($1,$2,$3)`
-	_, err = tx.Exec(query, user.Uuid, user.Login, user.PasswordHash)
+	funcCtx := injectTx(ctx, tx)
+	err = tFunc(funcCtx)
 
 	if err != nil {
-		tx.Rollback()
-		return false, fmt.Errorf("could not insert user: %w", err)
+		errRollback := tx.Rollback()
+		if errRollback != nil {
+			p.log.Error("rollback transaction: %v", sl.Err(errRollback))
+			return fmt.Errorf("%w: %w", ErrRollbackTx, errRollback)
+		}
+		return err
 	}
-	tx.Commit()
-	return true, nil
+
+	if errCommit := tx.Commit(); errCommit != nil {
+		p.log.Error("commit transaction: %v", sl.Err(errCommit))
+		return fmt.Errorf("%w: %w", ErrBeginTx, err)
+	}
+	return nil
 }
 
-func (p *Postgres) GetUser(ctx context.Context, login string) (domain.User, error) {
-	var user domain.User
-	query := "SELECT u.uuid, u.login, u.password FROM users as u WHERE u.login = $1"
-	row := p.db.QueryRow(query, login)
-	err := row.Scan(&user.Uuid, &user.Login, &user.PasswordHash)
+type User struct {
+	Uuid         uuid.UUID `pg:"uuid"`
+	Login        string    `pg:"login"`
+	PasswordHash []byte    `pg:"password"`
+}
+
+func (p *Postgres) CreateUser(ctx context.Context, user domain.User) (*domain.User, error) {
+	const op = "postgres.CreateUser"
+	log := p.log.With(slog.String("op", op))
+
+	pgUser := User{Uuid: user.Uuid, Login: user.Login, PasswordHash: user.PasswordHash}
+	query := "INSERT INTO users (uuid, login, password) VALUES ($1,$2,$3)"
+
+	tx, err := p.getTx(ctx)
 	if err != nil {
-		return user, fmt.Errorf("user not found: %w", err)
+		log.Error("error: %v", sl.Err(err))
+		return nil, ErrBeginTx
 	}
-	return user, nil
+
+	_, err = tx.Exec(query, pgUser.Uuid, pgUser.Login, pgUser.PasswordHash)
+	if err != nil {
+		log.Error("error: %v", sl.Err(err))
+		return nil, ErrTxExec
+	}
+
+	return &user, nil
+}
+
+func (p *Postgres) GetUserByLogin(ctx context.Context, login string) (*domain.User, error) {
+	const op = "postgres.GetUserByLogin"
+	log := p.log.With(slog.String("op", op))
+
+	pgUser := User{Login: login}
+
+	query := "SELECT uuid, login, password FROM users WHERE users.login = $1"
+
+	tx, err := p.getTx(ctx)
+	if err != nil {
+		log.Error("error: %v", sl.Err(err))
+		return nil, ErrBeginTx
+	}
+
+	row := tx.QueryRow(query, pgUser.Login)
+	err = row.Scan(&pgUser.Uuid, &pgUser.Login, &pgUser.PasswordHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &domain.User{}, ErrUserNotFound
+	}
+	if err != nil {
+		log.Info("error: ", sl.Err(err))
+		return &domain.User{}, fmt.Errorf("%w: %w", ErrTxExec, err)
+	}
+
+	return &domain.User{Uuid: pgUser.Uuid, Login: pgUser.Login, PasswordHash: pgUser.PasswordHash}, nil
 }

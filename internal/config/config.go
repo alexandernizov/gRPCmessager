@@ -13,8 +13,7 @@ type Config struct {
 	Postgres PostgresConfig `yaml:"postgres"`
 	Redis    RedisConfig    `yaml:"redis"`
 	User     UserConfig     `yaml:"user"`
-	AuthGrpc AuthGrpcConfig `yaml:"grpc_auth"`
-	ChatGrpc ChatGrpcConfig `yaml:"grpc_chat"`
+	Grpc     GrpcConfig     `yaml:"grpc"`
 	Chat     ChatConfig     `yaml:"chat"`
 }
 
@@ -32,23 +31,16 @@ type ChatConfig struct {
 }
 
 type PostgresConfig struct {
-	Address        string `yaml:"address"`
-	Port           string `yaml:"port"`
-	User           string `yaml:"user"`
-	Password       string `yaml:"password"`
-	DBname         string `yaml:"dbname"`
-	MigrationsPath string `yaml:"migrations_path"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	DBname   string `yaml:"dbname"`
 }
 
-type AuthGrpcConfig struct {
+type GrpcConfig struct {
 	Address        string        `yaml:"address"`
-	Port           int           `yaml:"port"`
-	RequestTimeout time.Duration `yaml:"request_timeout"`
-}
-
-type ChatGrpcConfig struct {
-	Address        string        `yaml:"address"`
-	Port           int           `yaml:"port"`
+	Port           string        `yaml:"port"`
 	RequestTimeout time.Duration `yaml:"request_timeout"`
 }
 
