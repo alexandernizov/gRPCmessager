@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -16,14 +15,14 @@ import (
 )
 
 type AuthStorage interface {
-	WithinTransaction(ctx context.Context, tFunc func(ctx context.Context) error) error
+	WithTx(ctx context.Context, tFunc func(ctx context.Context) error) error
 
 	CreateUser(ctx context.Context, user domain.User) (*domain.User, error)
 	GetUserByLogin(ctx context.Context, login string) (*domain.User, error)
 	GetUserByUuid(ctx context.Context, uuid uuid.UUID) (*domain.User, error)
 
-	UpdateToken(ctx context.Context, userUuid uuid.UUID, refreshToken string) error
-	GetUserToken(ctx context.Context, userUuid uuid.UUID) (string, error)
+	UpsertRefreshToken(ctx context.Context, userUuid uuid.UUID, refreshToken string) error
+	GetRefreshToken(ctx context.Context, userUuid uuid.UUID) (string, error)
 }
 
 type AuthService struct {
@@ -42,9 +41,6 @@ type JwtParams struct {
 var (
 	ErrUserAlreadyExsist  = errors.New("user is already exist")
 	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrFailLogin          = errors.New("login failed")
-	ErrInvalidToken       = errors.New("token is invalid")
-	ErrTokenIsExpired     = errors.New("refresh token is expired")
 	ErrInternalError      = errors.New("internal error")
 )
 
@@ -56,37 +52,41 @@ func (a *AuthService) Register(ctx context.Context, login, password string) (*do
 	const op = "auth.Register"
 	log := a.log.With(slog.String("op", op))
 
-	//1. Generate user
+	// Generate user
 	passHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		log.Error("failed to generate password hash", sl.Err(err))
-		return nil, fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
+		return nil, ErrInvalidCredentials
 	}
 
-	user := domain.User{Uuid: uuid.New(), Login: login, PasswordHash: passHash}
+	newUser := domain.User{Uuid: uuid.New(), Login: login, PasswordHash: passHash}
 
-	//2. Invoke in same transaction
 	fn := func(fnCtx context.Context) error {
-		//Check if user exists
-		_, err := a.authStorage.GetUserByLogin(fnCtx, user.Login)
-		if !errors.Is(err, postgres.ErrUserNotFound) {
+		// Check if user already exists
+		_, err := a.authStorage.GetUserByLogin(fnCtx, newUser.Login)
+
+		switch {
+		case errors.Is(err, postgres.ErrUserNotFound):
+		case err == nil:
 			return ErrUserAlreadyExsist
+		default:
+			return ErrInternalError
 		}
-		//If user doesn't exist then create
-		_, err = a.authStorage.CreateUser(fnCtx, user)
+
+		// If user doesn't exist then create
+		_, err = a.authStorage.CreateUser(fnCtx, newUser)
 		if err != nil {
-			log.Error("error according user creating", sl.Err(err))
-			return err
+			return ErrInternalError
 		}
 		return nil
 	}
 
-	err = a.authStorage.WithinTransaction(ctx, fn)
+	err = a.authStorage.WithTx(ctx, fn)
 	if err != nil {
 		return nil, err
 	}
-	//3. Return result
-	return &user, nil
+
+	return &newUser, nil
 }
 
 func (a *AuthService) Login(ctx context.Context, login, password string) (*domain.Tokens, error) {
@@ -97,30 +97,34 @@ func (a *AuthService) Login(ctx context.Context, login, password string) (*domai
 
 	fn := func(fnCtx context.Context) error {
 		user, err := a.authStorage.GetUserByLogin(fnCtx, login)
+		if errors.Is(err, postgres.ErrUserNotFound) {
+			return ErrInvalidCredentials
+		}
 		if err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
+			return ErrInternalError
 		}
 
 		if err := bcrypt.CompareHashAndPassword(user.PasswordHash, []byte(password)); err != nil {
-			log.Info("attempting to login with incorrect password")
-			return fmt.Errorf("%w", ErrInvalidCredentials)
+			log.Info("attempting to login with incorrect password", slog.String("userUuid", user.Uuid.String()))
+			return ErrInvalidCredentials
 		}
 
 		tokens, err = jwt.NewTokens(*user, a.jwtParams.AccessTtl, a.jwtParams.RefreshTtl, a.jwtParams.Secret)
 		if err != nil {
-			return fmt.Errorf("%w: %w", ErrFailLogin, err)
+			log.Error("error with generating tokens", sl.Err(err))
+			return ErrInternalError
 		}
 
-		err = a.authStorage.UpdateToken(fnCtx, user.Uuid, tokens.RefreshToken)
+		err = a.authStorage.UpsertRefreshToken(fnCtx, user.Uuid, tokens.RefreshToken)
 		if err != nil {
-			return err
+			return ErrInternalError
 		}
 		return nil
 	}
 
-	err := a.authStorage.WithinTransaction(ctx, fn)
+	err := a.authStorage.WithTx(ctx, fn)
 	if err != nil {
-		return nil, ErrFailLogin
+		return nil, err
 	}
 
 	return &tokens, nil
@@ -137,49 +141,44 @@ func (a *AuthService) Refresh(ctx context.Context, token string) (*domain.Tokens
 		return nil, ErrInvalidCredentials
 	}
 
-	// Get user
 	userUuid, err := jwt.GetUserUuidFromToken(token, a.jwtParams.Secret)
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
 
-	user, err := a.authStorage.GetUserByUuid(ctx, userUuid)
-	if err != nil {
-		return nil, ErrInvalidCredentials
-	}
-
-	// Generate new token
-	newTokens, err := jwt.NewTokens(*user, a.jwtParams.AccessTtl, a.jwtParams.RefreshTtl, a.jwtParams.Secret)
-	if err != nil {
-		return nil, ErrInternalError
-	}
-
-	var currentToken string
-	a.authStorage.WithinTransaction(ctx, func(fnCtx context.Context) error {
-		currentToken, _ = a.authStorage.GetUserToken(fnCtx, userUuid)
-		return nil
-	})
-
-	// Same transaction
+	var newTokens domain.Tokens
 	fn := func(fnCtx context.Context) error {
-		// Get current refresh token in DB and compare it to provided token
+		currentToken, err := a.authStorage.GetRefreshToken(fnCtx, userUuid)
 		if err != nil {
 			return ErrInvalidCredentials
 		}
 
-		if token != currentToken {
-			log.Warn("someone trying to use expired token", slog.String("user_uuid", userUuid.String()))
-			return ErrTokenIsExpired
+		if currentToken != token {
+			log.Warn("attempting refresh tokens with expired token: ", slog.String("user_uuid", userUuid.String()))
+			return ErrInvalidCredentials
 		}
 
-		err = a.authStorage.UpdateToken(ctx, userUuid, newTokens.RefreshToken)
+		user, err := a.authStorage.GetUserByUuid(fnCtx, userUuid)
+		if err != nil {
+			return ErrInvalidCredentials
+		}
+
+		// Generate new token
+		newTokens, err = jwt.NewTokens(*user, a.jwtParams.AccessTtl, a.jwtParams.RefreshTtl, a.jwtParams.Secret)
+		if err != nil {
+			log.Error("error according creating jwt tokens: ", sl.Err(err))
+			return ErrInternalError
+		}
+
+		err = a.authStorage.UpsertRefreshToken(fnCtx, userUuid, newTokens.RefreshToken)
 		if err != nil {
 			return ErrInternalError
 		}
+
 		return nil
 	}
 
-	err = a.authStorage.WithinTransaction(ctx, fn)
+	err = a.authStorage.WithTx(ctx, fn)
 	if err != nil {
 		return nil, err
 	}
