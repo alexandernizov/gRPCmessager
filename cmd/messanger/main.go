@@ -39,7 +39,8 @@ func main() {
 	}
 
 	//Auth Service
-	authService := auth.NewAuthService(log, pgDB, cfg.User.JwtTTL, []byte(cfg.User.JwtSecret))
+	jwt := auth.JwtParams{AccessTtl: cfg.User.JwtAccessTTL, RefreshTtl: cfg.User.JwtRefreshTTL, Secret: []byte(cfg.User.JwtSecret)}
+	authService := auth.NewAuthService(log, pgDB, jwt)
 
 	//Start Grpc Server
 	server := grpc.NewServer(log)

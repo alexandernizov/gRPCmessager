@@ -1,6 +1,12 @@
 CREATE TABLE users
 (
-    uuid uuid not null unique,
-    login varchar(255) not null,
-    password varchar(255) not null
+    uuid uuid PRIMARY KEY,
+    login VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE refresh_tokens
+(
+    user_uuid uuid PRIMARY KEY REFERENCES users (uuid),
+    token VARCHAR(255) NOT NULL
 );

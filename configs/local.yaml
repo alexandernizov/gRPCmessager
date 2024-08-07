@@ -11,7 +11,8 @@ chat:
   chat_ttl: 30s
 
 user:
-  jwt_ttl: 1h
+  jwt_access_ttl: 5m
+  jwt_refresh_ttl: 1h
   jwt_secret: adshasdhajsduasdjansdamzxnnzxjhahdquwendxzc82
 
 postgres:

@@ -12,7 +12,8 @@ import (
 
 type AuthProvider interface {
 	Register(ctx context.Context, login, password string) (*domain.User, error)
-	Login(ctx context.Context, login, password string) (string, error)
+	Login(ctx context.Context, login, password string) (*domain.Tokens, error)
+	Refresh(ctx context.Context, refreshToken string) (*domain.Tokens, error)
 }
 
 type AuthServer struct {
@@ -40,10 +41,23 @@ func (a *AuthServer) Login(ctx context.Context, req *authpb.LoginReq) (*authpb.L
 		return nil, status.Error(codes.InvalidArgument, "login and password is required")
 	}
 	//Get result
-	token, err := a.Provider.Login(ctx, req.Login, req.Password)
+	tokens, err := a.Provider.Login(ctx, req.Login, req.Password)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	//Send response
-	return &authpb.LoginResp{Token: token}, nil
+	return &authpb.LoginResp{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken}, nil
+}
+
+func (a *AuthServer) Refresh(ctx context.Context, req *authpb.RefreshReq) (*authpb.RefreshResp, error) {
+	//Validate
+	if req.RefreshToken == "" {
+		return nil, status.Error(codes.InvalidArgument, "refresh token is required")
+	}
+	//Get result
+	newTokens, err := a.Provider.Refresh(ctx, req.RefreshToken)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	return &authpb.RefreshResp{AccessToken: newTokens.AccessToken, RefreshToken: newTokens.RefreshToken}, nil
 }

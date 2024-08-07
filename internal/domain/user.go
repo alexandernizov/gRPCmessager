@@ -8,5 +8,10 @@ type User struct {
 	PasswordHash []byte
 }
 
+type Tokens struct {
+	AccessToken  string
+	RefreshToken string
+}
+
 type UserUuidCtxKey struct {
 }

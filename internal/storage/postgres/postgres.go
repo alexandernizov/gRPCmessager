@@ -166,3 +166,78 @@ func (p *Postgres) GetUserByLogin(ctx context.Context, login string) (*domain.Us
 
 	return &domain.User{Uuid: pgUser.Uuid, Login: pgUser.Login, PasswordHash: pgUser.PasswordHash}, nil
 }
+
+func (p *Postgres) GetUserByUuid(ctx context.Context, uuid uuid.UUID) (*domain.User, error) {
+	const op = "postgres.GetUserByLogin"
+	log := p.log.With(slog.String("op", op))
+
+	pgUser := User{Uuid: uuid}
+
+	query := "SELECT uuid, login, password FROM users WHERE users.uuid = $1"
+
+	tx, err := p.getTx(ctx)
+	if err != nil {
+		log.Error("error: %v", sl.Err(err))
+		return nil, ErrBeginTx
+	}
+
+	row := tx.QueryRow(query, pgUser.Uuid)
+	err = row.Scan(&pgUser.Uuid, &pgUser.Login, &pgUser.PasswordHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return &domain.User{}, ErrUserNotFound
+	}
+	if err != nil {
+		log.Info("error: ", sl.Err(err))
+		return &domain.User{}, fmt.Errorf("%w: %w", ErrTxExec, err)
+	}
+
+	return &domain.User{Uuid: pgUser.Uuid, Login: pgUser.Login, PasswordHash: pgUser.PasswordHash}, nil
+}
+
+func (p *Postgres) UpdateToken(ctx context.Context, userUuid uuid.UUID, refreshToken string) error {
+	const op = "postgres.UpdateToken"
+	log := p.log.With(slog.String("op", op))
+
+	tx, err := p.getTx(ctx)
+	if err != nil {
+		log.Error("error: %v", sl.Err(err))
+		return ErrBeginTx
+	}
+
+	query := "INSERT INTO refresh_tokens (user_uuid, token) VALUES($1, $2) ON CONFLICT (user_uuid) DO UPDATE SET token = ($2);"
+	_, err = tx.Exec(query, userUuid, refreshToken)
+	if err != nil {
+		log.Info("error: ", sl.Err(err))
+		return fmt.Errorf("%w: %w", ErrTxExec, err)
+	}
+
+	return nil
+}
+
+func (p *Postgres) GetUserToken(ctx context.Context, userUuid uuid.UUID) (string, error) {
+	const op = "postgres.GetUserToken"
+	log := p.log.With(slog.String("op", op))
+
+	tx, err := p.getTx(ctx)
+	if err != nil {
+		log.Error("error: %v", sl.Err(err))
+		return "", ErrTxExec
+	}
+
+	query := `SELECT token FROM refresh_tokens WHERE user_uuid = $1`
+	row := tx.QueryRow(query, userUuid)
+	if row.Err() != nil {
+		log.Info("error: ", sl.Err(err))
+		return "", ErrTxExec
+	}
+
+	var token string
+
+	err = row.Scan(&token)
+	if err != nil {
+		log.Info("error: ", sl.Err(err))
+		return "", ErrTxExec
+	}
+
+	return token, nil
+}

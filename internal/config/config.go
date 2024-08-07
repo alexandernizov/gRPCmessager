@@ -45,8 +45,9 @@ type GrpcConfig struct {
 }
 
 type UserConfig struct {
-	JwtTTL    time.Duration `yaml:"jwt_ttl"`
-	JwtSecret string        `yaml:"jwt_secret"`
+	JwtAccessTTL  time.Duration `yaml:"jwt_access_ttl"`
+	JwtRefreshTTL time.Duration `yaml:"jwt_refresh_ttl"`
+	JwtSecret     string        `yaml:"jwt_secret"`
 }
 
 func MustLoad() *Config {

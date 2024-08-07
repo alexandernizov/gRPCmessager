@@ -24,7 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 type AuthClient interface {
 	Register(ctx context.Context, in *RegisterReq, opts ...grpc.CallOption) (*RegisterResp, error)
 	Login(ctx context.Context, in *LoginReq, opts ...grpc.CallOption) (*LoginResp, error)
-	Validate(ctx context.Context, in *ValidateReq, opts ...grpc.CallOption) (*ValidateResp, error)
+	Refresh(ctx context.Context, in *RefreshReq, opts ...grpc.CallOption) (*RefreshResp, error)
 }
 
 type authClient struct {
@@ -53,9 +53,9 @@ func (c *authClient) Login(ctx context.Context, in *LoginReq, opts ...grpc.CallO
 	return out, nil
 }
 
-func (c *authClient) Validate(ctx context.Context, in *ValidateReq, opts ...grpc.CallOption) (*ValidateResp, error) {
-	out := new(ValidateResp)
-	err := c.cc.Invoke(ctx, "/authpb.Auth/Validate", in, out, opts...)
+func (c *authClient) Refresh(ctx context.Context, in *RefreshReq, opts ...grpc.CallOption) (*RefreshResp, error) {
+	out := new(RefreshResp)
+	err := c.cc.Invoke(ctx, "/authpb.Auth/Refresh", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (c *authClient) Validate(ctx context.Context, in *ValidateReq, opts ...grpc
 type AuthServer interface {
 	Register(context.Context, *RegisterReq) (*RegisterResp, error)
 	Login(context.Context, *LoginReq) (*LoginResp, error)
-	Validate(context.Context, *ValidateReq) (*ValidateResp, error)
+	Refresh(context.Context, *RefreshReq) (*RefreshResp, error)
 	mustEmbedUnimplementedAuthServer()
 }
 
@@ -82,8 +82,8 @@ func (UnimplementedAuthServer) Register(context.Context, *RegisterReq) (*Registe
 func (UnimplementedAuthServer) Login(context.Context, *LoginReq) (*LoginResp, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Login not implemented")
 }
-func (UnimplementedAuthServer) Validate(context.Context, *ValidateReq) (*ValidateResp, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Validate not implemented")
+func (UnimplementedAuthServer) Refresh(context.Context, *RefreshReq) (*RefreshResp, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Refresh not implemented")
 }
 func (UnimplementedAuthServer) mustEmbedUnimplementedAuthServer() {}
 
@@ -134,20 +134,20 @@ func _Auth_Login_Handler(srv interface{}, ctx context.Context, dec func(interfac
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Auth_Validate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ValidateReq)
+func _Auth_Refresh_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RefreshReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AuthServer).Validate(ctx, in)
+		return srv.(AuthServer).Refresh(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/authpb.Auth/Validate",
+		FullMethod: "/authpb.Auth/Refresh",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServer).Validate(ctx, req.(*ValidateReq))
+		return srv.(AuthServer).Refresh(ctx, req.(*RefreshReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -168,8 +168,8 @@ var Auth_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Auth_Login_Handler,
 		},
 		{
-			MethodName: "Validate",
-			Handler:    _Auth_Validate_Handler,
+			MethodName: "Refresh",
+			Handler:    _Auth_Refresh_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
