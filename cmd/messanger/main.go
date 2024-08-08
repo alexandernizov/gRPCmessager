@@ -33,7 +33,7 @@ func main() {
 		Password: cfg.Postgres.Password,
 		DBname:   cfg.Postgres.DBname,
 	}
-	pgDB, err := postgres.New(log, pgOpt)
+	pgDB, err := postgres.NewWithOptions(log, pgOpt)
 	if err != nil {
 		panic("can't connect to postgres")
 	}

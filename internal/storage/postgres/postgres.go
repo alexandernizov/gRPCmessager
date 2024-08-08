@@ -27,14 +27,17 @@ type PostgresOptions struct {
 }
 
 var (
-	ErrNoConnection = errors.New("can't establish connection to db")
-
-	ErrInternal = errors.New("internal error with DB connection")
-
-	ErrUserNotFound = errors.New("user is not found")
+	ErrNoConnection  = errors.New("can't establish connection to db")
+	ErrInternal      = errors.New("internal error")
+	ErrUserNotFound  = errors.New("user is not found")
+	ErrTokenNotFound = errors.New("token is not found")
 )
 
-func New(log *slog.Logger, opt PostgresOptions) (*Postgres, error) {
+func New(log *slog.Logger, db *sql.DB) *Postgres {
+	return &Postgres{log, db}
+}
+
+func NewWithOptions(log *slog.Logger, opt PostgresOptions) (*Postgres, error) {
 	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		opt.Host,
 		opt.Port,
@@ -84,6 +87,7 @@ func (p *Postgres) extractTx(ctx context.Context) (tx *sql.Tx, closeTx func(err 
 	return tx, func(err error) {
 		if err != nil {
 			tx.Rollback()
+			return
 		}
 		tx.Commit()
 	}
@@ -191,7 +195,7 @@ func (p *Postgres) UpsertRefreshToken(ctx context.Context, userUuid uuid.UUID, r
 
 	tx, closeTx := p.extractTx(ctx)
 
-	query := "INSERT INTO refresh_tokens (user_uuid, token) VALUES($1, $2) ON CONFLICT (user_uuid) DO UPDATE SET token = ($2);"
+	query := "INSERT INTO refresh_tokens (user_uuid, token) VALUES($1, $2) ON CONFLICT (user_uuid) DO UPDATE SET token = ($2)"
 	_, err := tx.Exec(query, userUuid, refreshToken)
 	closeTx(err)
 
@@ -216,7 +220,7 @@ func (p *Postgres) GetRefreshToken(ctx context.Context, userUuid uuid.UUID) (str
 	closeTx(err)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrUserNotFound
+		return "", ErrTokenNotFound
 	}
 	if err != nil {
 		log.Info("error: ", sl.Err(err))

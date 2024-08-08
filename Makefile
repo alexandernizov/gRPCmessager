@@ -1,6 +1,10 @@
 run:
 	go run cmd/messanger/main.go
 
+test:
+	go clean -testcache
+	go test ./...
+
 build-docker:
 	echo "Building messanger-app"
 	GOOS=linux GOARCH=amd64 go build -o auth-app ./cmd/messanger
