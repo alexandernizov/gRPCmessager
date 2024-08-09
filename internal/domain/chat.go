@@ -1,8 +1,14 @@
 package domain
 
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
 type Chat struct {
-	Uuid     string
+	Uuid     uuid.UUID
 	Owner    User
 	Readonly bool
-	Deadline int64
+	Deadline time.Time
 }

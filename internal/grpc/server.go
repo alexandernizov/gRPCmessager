@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"reflect"
 	"time"
 
 	"github.com/alexandernizov/grpcmessanger/api/gen/authpb"
 	"github.com/alexandernizov/grpcmessanger/api/gen/chatpb"
+	"github.com/alexandernizov/grpcmessanger/internal/pkg/jwt"
 	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -38,6 +40,7 @@ func NewServer(log *slog.Logger) *Server {
 type ServerOptions struct {
 	Address        string
 	RequestTimeout time.Duration
+	JwtSecret      []byte
 
 	AuthProvider
 	ChatProvider
@@ -57,9 +60,12 @@ func (s *Server) Start(opt ServerOptions) {
 		log.Error("can't make listener", sl.Err(err))
 	}
 
-	s.server = grpc.NewServer(grpc.ChainUnaryInterceptor(unaryLoggingInterceptor(s.log)))
+	s.server = grpc.NewServer(grpc.ChainUnaryInterceptor(
+		unaryLoggingInterceptor(s.log),
+		unaryAuthInterceptor(s.log, opt.JwtSecret),
+	))
 	authpb.RegisterAuthServer(s.server, &AuthServer{Provider: opt.AuthProvider})
-	chatpb.RegisterChatServer(s.server, &ChatServer{Provider: opt.ChatProvider})
+	chatpb.RegisterChatServer(s.server, &ChatServer{Provider: opt.ChatProvider, Secret: string(opt.JwtSecret)})
 	reflection.Register(s.server)
 
 	log.Info("grpc server is running")
@@ -91,15 +97,50 @@ func unaryLoggingInterceptor(log *slog.Logger) grpc.UnaryServerInterceptor {
 		if err != nil {
 			st := status.Convert(err)
 			reqJSON, _ := json.Marshal(req)
-
-			switch st.Code() {
-			case codes.Unauthenticated:
-				log.Warn(fmt.Sprintf("Unauthenticated try: %s Request: %s", info.FullMethod, reqJSON))
-			default:
-				log.Warn(fmt.Sprintf("Request error: %s, %s", st.Code().String(), reqJSON))
-			}
+			log.Warn(fmt.Sprintf("Request error: %s, %s", st.Code().String(), reqJSON))
 		}
 
 		return resp, err
+	}
+}
+
+func unaryAuthInterceptor(log *slog.Logger, jwtSecret []byte) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+
+		skip := make(map[string]bool)
+		skip["/authpb.Auth/Register"] = true
+		skip["/authpb.Auth/Login"] = true
+		skip["/authpb.Auth/Refresh"] = true
+
+		if _, ok := skip[info.FullMethod]; ok {
+			return handler(ctx, req)
+		}
+
+		// Используем рефлексию для получения поля "token"
+		v := reflect.ValueOf(req)
+		if v.Kind() == reflect.Ptr {
+			v = v.Elem()
+		}
+
+		// Проверяем, есть ли поле "token" в сообщении
+		tokenField := v.FieldByName("Token")
+		if !tokenField.IsValid() {
+			return nil, status.Errorf(codes.Unauthenticated, "token field is missing in request")
+		}
+
+		token, ok := tokenField.Interface().(string)
+		if !ok || token == "" {
+			return nil, status.Errorf(codes.Unauthenticated, "token is invalid or missing")
+		}
+
+		// Здесь нужно выполнить проверку токена, например, проверить его валидность
+
+		ok, err := jwt.ValidateToken(token, jwtSecret)
+		if !ok || err != nil {
+			return nil, status.Errorf(codes.Unauthenticated, "token is invalid")
+		}
+
+		// Если всё в порядке, передаем управление следующему обработчику
+		return handler(ctx, req)
 	}
 }

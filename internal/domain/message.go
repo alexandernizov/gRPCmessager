@@ -1,8 +1,14 @@
 package domain
 
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
 type Message struct {
-	Uuid       string
-	AuthorUuid string
+	//Uuid       uuid.UUID
+	AuthorUuid uuid.UUID
 	Body       string
-	Published  int64
+	Published  time.Time
 }

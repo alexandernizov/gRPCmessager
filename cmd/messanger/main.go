@@ -9,7 +9,9 @@ import (
 	"github.com/alexandernizov/grpcmessanger/internal/config"
 	"github.com/alexandernizov/grpcmessanger/internal/grpc"
 	"github.com/alexandernizov/grpcmessanger/internal/services/auth"
+	"github.com/alexandernizov/grpcmessanger/internal/services/chat"
 	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
+	"github.com/alexandernizov/grpcmessanger/internal/storage/redis"
 )
 
 const (
@@ -26,7 +28,7 @@ func main() {
 	log.Info("starting application", slog.String("env", cfg.Env))
 
 	//Connect postgres
-	pgOpt := postgres.PostgresOptions{
+	pgOpt := postgres.ConnectOptions{
 		Host:     cfg.Postgres.Host,
 		Port:     cfg.Postgres.Port,
 		User:     cfg.Postgres.User,
@@ -40,15 +42,36 @@ func main() {
 
 	//Auth Service
 	jwt := auth.JwtParams{AccessTtl: cfg.User.JwtAccessTTL, RefreshTtl: cfg.User.JwtRefreshTTL, Secret: []byte(cfg.User.JwtSecret)}
-	authService := auth.NewAuthService(log, pgDB, jwt)
+	authService := auth.NewService(log, pgDB, jwt)
+
+	//Connect redis
+	redisOpt := redis.ConnectOptions{
+		Addr:     cfg.Redis.Addr + ":" + cfg.Redis.Port,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.Db,
+	}
+	redisDB, err := redis.New(log, redisOpt)
+	if err != nil {
+		panic("can't connect to redis")
+	}
+
+	//Chat Service
+	chatOpt := chat.ChatOptions{
+		DefaultTtl:      cfg.Chat.ChatTTL,
+		MaximumCount:    cfg.Chat.MaxChatsCount,
+		MaximumMessages: cfg.Chat.MaxMessagesPerChat,
+	}
+	chatService := chat.NewService(log, chatOpt, redisDB)
 
 	//Start Grpc Server
 	server := grpc.NewServer(log)
 	gOpt := grpc.ServerOptions{
 		Address:        cfg.Grpc.Address + ":" + cfg.Grpc.Port,
 		RequestTimeout: cfg.Grpc.RequestTimeout,
+		JwtSecret:      []byte(cfg.User.JwtSecret),
 
 		AuthProvider: authService,
+		ChatProvider: chatService,
 	}
 	server.Start(gOpt)
 
@@ -60,49 +83,6 @@ func main() {
 	log.Info("stopping application")
 	server.Stop()
 	log.Info("application stopped")
-
-	// //Инициилизировать сторедж
-	// //1. Редис
-	// redisChat, err := redis.NewRedisChatStorage(
-	// 	log,
-	// 	cfg.Redis.Addr,
-	// 	cfg.Redis.Port,
-	// 	cfg.Redis.Password,
-	// 	cfg.Redis.Db,
-	// 	cfg.Chat.MaxChatsCount,
-	// 	cfg.Chat.MaxMessagesPerChat,
-	// )
-
-	// if err != nil {
-	// 	panic("cant initialize redis storage")
-	// }
-
-	// //2. Постгрес
-	// postgresAuth, err := postgres.NewPostgresAuthStorage(
-	// 	log,
-	// 	cfg.Postgres.Address,
-	// 	cfg.Postgres.Port,
-	// 	cfg.Postgres.User,
-	// 	cfg.Postgres.Password,
-	// 	cfg.Postgres.DBname,
-	// 	cfg.Postgres.MigrationsPath,
-	// )
-	// if err != nil {
-	// 	slog.Error("can't connect to postgres", sl.Err(err))
-	// 	panic(err.Error())
-	// }
-	// defer postgresAuth.Close()
-
-	// //Инициилизировать сервисный слой
-	// chatService := schat.NewChatService(log, redisChat, cfg.Chat.ChatTTL)
-	// authService := sauth.NewAuthService(log, postgresAuth, cfg.User.JwtTTL, []byte(cfg.User.JwtSecret))
-
-	// //Запустить приложение
-	// grpcChatServer := gchat.NewGrpcServer(log, cfg.ChatGrpc.Address, cfg.ChatGrpc.Port, cfg.ChatGrpc.RequestTimeout, chatService, cfg.User.JwtSecret)
-	// grpcChatServer.Start()
-
-	// grpcAuthServer := gauth.NewGrpcServer(log, cfg.AuthGrpc.Address, cfg.AuthGrpc.Port, cfg.AuthGrpc.RequestTimeout, authService)
-	// grpcAuthServer.Start()
 }
 
 func setupLogger(env string) *slog.Logger {

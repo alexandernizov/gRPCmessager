@@ -18,7 +18,7 @@ type Postgres struct {
 	db  *sql.DB
 }
 
-type PostgresOptions struct {
+type ConnectOptions struct {
 	Host     string
 	Port     string
 	User     string
@@ -37,7 +37,7 @@ func New(log *slog.Logger, db *sql.DB) *Postgres {
 	return &Postgres{log, db}
 }
 
-func NewWithOptions(log *slog.Logger, opt PostgresOptions) (*Postgres, error) {
+func NewWithOptions(log *slog.Logger, opt ConnectOptions) (*Postgres, error) {
 	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		opt.Host,
 		opt.Port,
