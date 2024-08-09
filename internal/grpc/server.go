@@ -133,14 +133,12 @@ func unaryAuthInterceptor(log *slog.Logger, jwtSecret []byte) grpc.UnaryServerIn
 			return nil, status.Errorf(codes.Unauthenticated, "token is invalid or missing")
 		}
 
-		// Здесь нужно выполнить проверку токена, например, проверить его валидность
-
 		ok, err := jwt.ValidateToken(token, jwtSecret)
 		if !ok || err != nil {
+			log.Warn("someone trying to get access with invalid token", slog.String("token", token))
 			return nil, status.Errorf(codes.Unauthenticated, "token is invalid")
 		}
 
-		// Если всё в порядке, передаем управление следующему обработчику
 		return handler(ctx, req)
 	}
 }

@@ -89,6 +89,9 @@ func (c *ChatServer) ChatHistory(ctx context.Context, req *chatpb.ChatHistoryReq
 
 	res, err := c.Provider.ChatHistory(ctx, chatUuid)
 	if err != nil {
+		if errors.Is(err, chatServ.ErrChatNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 

@@ -108,14 +108,14 @@ func (r *Redis) GetChat(ctx context.Context, chatUuid uuid.UUID) (*domain.Chat, 
 		return nil, ErrInternal
 	}
 
-	uuid, err := uuid.Parse(chat.Owner)
+	ownerUuid, err := uuid.Parse(chat.Owner)
 	if err != nil {
-		return nil, err
+		return nil, ErrChatNotFound
 	}
 
 	result := domain.Chat{
 		Uuid:     chatUuid,
-		Owner:    domain.User{Uuid: uuid},
+		Owner:    domain.User{Uuid: ownerUuid},
 		Readonly: chat.Readonly,
 	}
 	return &result, nil
