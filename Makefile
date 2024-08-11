@@ -7,9 +7,9 @@ test:
 
 build-docker:
 	echo "Building messanger-app"
-	GOOS=linux GOARCH=amd64 go build -o auth-app ./cmd/messanger
+	GOOS=linux GOARCH=amd64 go build -o  messanger ./cmd/messanger
 	echo "Starting docker-compose"
-	docker-compose up --build messanger-app
+	docker-compose up --build messanger
 
 
 generate:
@@ -20,7 +20,6 @@ gen-auth:
 
 gen-chat:
 	protoc -I ./gen/protos ./gen/protos/chat_service.proto --go_out=./gen/ --go-grpc_out=./gen/
-
 
 migrate-up:
 	migrate -path ./migrations -database 'postgres://postgres:password@localhost:5432/postgres?sslmode=disable' up
