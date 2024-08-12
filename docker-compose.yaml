@@ -7,7 +7,6 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["./messanger", "-config", "./prod.yaml"]
-    #command: "./messanger -config \"./prod.yaml\""
     depends_on:
       - redis
       - postgres
