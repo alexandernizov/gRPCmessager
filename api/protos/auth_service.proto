@@ -4,10 +4,27 @@ package authpb;
 
 option go_package="gen/authpb";
 
+import "google/api/annotations.proto";
+
 service Auth {
-    rpc Register(RegisterReq) returns (RegisterResp);
-    rpc Login(LoginReq) returns (LoginResp);
-    rpc Refresh(RefreshReq) returns (RefreshResp);
+    rpc Register(RegisterReq) returns (RegisterResp) {
+        option (google.api.http) = {
+            post: "/register"
+            body: "*"
+        };
+    };
+    rpc Login(LoginReq) returns (LoginResp) {
+        option (google.api.http) = {
+            post: "/login"
+            body: "*"
+        };
+    };
+    rpc Refresh(RefreshReq) returns (RefreshResp) {
+        option (google.api.http) = {
+            post: "/refresh"
+            body: "*"
+        };
+    };
 }
 
 message RegisterReq {

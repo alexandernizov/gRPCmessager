@@ -21,6 +21,9 @@ gen-auth:
 gen-chat:
 	protoc -I ./gen/protos ./gen/protos/chat_service.proto --go_out=./gen/ --go-grpc_out=./gen/
 
+gen-oapi:
+	oapi-codegen -generate chi-server -o ./api/gen/http/http.go -package http ./api/swagger/http.yaml
+
 migrate-up:
 	migrate -path ./migrations -database 'postgres://postgres:password@localhost:5432/postgres?sslmode=disable' up
 

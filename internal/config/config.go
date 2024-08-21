@@ -14,7 +14,13 @@ type Config struct {
 	Redis    RedisConfig    `yaml:"redis"`
 	User     UserConfig     `yaml:"user"`
 	Grpc     GrpcConfig     `yaml:"grpc"`
+	Http     HttpConfig     `yaml:"http"`
 	Chat     ChatConfig     `yaml:"chat"`
+}
+
+type HttpConfig struct {
+	Addr string `yaml:"address"`
+	Port string `yaml:"port"`
 }
 
 type RedisConfig struct {

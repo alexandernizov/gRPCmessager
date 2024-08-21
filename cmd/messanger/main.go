@@ -8,6 +8,7 @@ import (
 
 	"github.com/alexandernizov/grpcmessanger/internal/config"
 	"github.com/alexandernizov/grpcmessanger/internal/grpc"
+	"github.com/alexandernizov/grpcmessanger/internal/http"
 	"github.com/alexandernizov/grpcmessanger/internal/services/auth"
 	"github.com/alexandernizov/grpcmessanger/internal/services/chat"
 	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
@@ -75,12 +76,16 @@ func main() {
 	}
 	server.Start(gOpt)
 
+	httpServer := http.New(log, cfg.Grpc.Address+":"+cfg.Grpc.Port, cfg.Http.Addr+":"+cfg.Http.Port)
+	httpServer.Start()
+
 	//Stop application
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 
 	<-stop
 	log.Info("stopping application")
+	//	httpServer.Stop()
 	server.Stop()
 	log.Info("application stopped")
 }
