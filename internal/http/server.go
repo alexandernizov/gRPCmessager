@@ -57,7 +57,10 @@ func (s *Server) Start() {
 		Handler: gwmux,
 	}
 
-	s.server.ListenAndServe()
+	err = s.server.ListenAndServe()
+	if err != nil {
+		log.Error("error during start http server", sl.Err(err))
+	}
 
 	s.isRunning = true
 }
@@ -68,6 +71,9 @@ func (s *Server) Stop() {
 
 	log.Info("http is stopping")
 
-	s.server.Shutdown(context.TODO())
+	err := s.server.Shutdown(context.TODO())
+	if err != nil {
+		log.Error("error during shutdown http server", sl.Err(err))
+	}
 	s.isRunning = false
 }

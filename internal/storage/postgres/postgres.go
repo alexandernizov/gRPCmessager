@@ -86,10 +86,16 @@ func (p *Postgres) extractTx(ctx context.Context) (tx *sql.Tx, closeTx func(err 
 	tx, _ = p.db.Begin()
 	return tx, func(err error) {
 		if err != nil {
-			tx.Rollback()
+			errRollback := tx.Rollback()
+			if errRollback != nil {
+				p.log.Error("error according rollback transaction in DB", sl.Err(errRollback))
+			}
 			return
 		}
-		tx.Commit()
+		errCommit := tx.Commit()
+		if err != nil {
+			p.log.Error("error according commit transaction in DB", sl.Err(errCommit))
+		}
 	}
 }
 

@@ -29,3 +29,6 @@ migrate-up:
 
 migrate-down:
 	migrate -path ./migrations -database 'postgres://postgres:password@localhost:5432/postgres?sslmode=disable' down
+
+lint:
+	golangci-lint run

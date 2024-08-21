@@ -73,7 +73,10 @@ func (s *Server) Start(opt ServerOptions) {
 	s.isRunning = true
 
 	go func() {
-		s.server.Serve(listener)
+		err := s.server.Serve(listener)
+		if err != nil {
+			s.log.Error("error with grpc serve listener", sl.Err(err))
+		}
 	}()
 }
 

@@ -12,6 +12,7 @@ services:
       - postgres
     ports:
       - 50001:50001
+      - 50002:50002
     environment:
       - DB_PASSWORD=password
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alexandernizov/grpcmessanger/internal/domain"
+	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
 	"github.com/alexandernizov/grpcmessanger/internal/storage/redis"
 	"github.com/google/uuid"
 )
@@ -87,7 +88,10 @@ func (c *ChatService) NewMessage(ctx context.Context, chatUuid uuid.UUID, author
 	if err != nil {
 		return nil, ErrInternal
 	}
-	c.chatStorage.TrimMessages(ctx, chatUuid, c.chatOptions.MaximumMessages)
+	_, err = c.chatStorage.TrimMessages(ctx, chatUuid, c.chatOptions.MaximumMessages)
+	if err != nil {
+		c.log.Error("error with during messages triming", sl.Err(err))
+	}
 	return createdMessage, nil
 }
 

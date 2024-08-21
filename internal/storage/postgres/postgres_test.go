@@ -95,7 +95,9 @@ func TestWithTx(t *testing.T) {
 
 			assert.Equal(t, testCase.expectErr, err)
 
-			mock.ExpectationsWereMet()
+			err = mock.ExpectationsWereMet()
+
+			assert.NoError(t, err, "didn't expect errors")
 		})
 	}
 }
@@ -167,7 +169,9 @@ func TestCreateUser(t *testing.T) {
 			assert.Equal(t, testCase.expectUser, user)
 			assert.Equal(t, testCase.expectErr, err)
 
-			mock.ExpectationsWereMet()
+			err = mock.ExpectationsWereMet()
+
+			assert.NoError(t, err, "didn't expect errors")
 		})
 	}
 }
@@ -257,7 +261,9 @@ func TestGetUserByLogin(t *testing.T) {
 			assert.Equal(t, testCase.expectUser, user)
 			assert.Equal(t, testCase.expectErr, err)
 
-			mock.ExpectationsWereMet()
+			err = mock.ExpectationsWereMet()
+
+			assert.NoError(t, err, "didn't expect errors")
 		})
 	}
 }
@@ -347,7 +353,9 @@ func TestGetUserByUuid(t *testing.T) {
 			assert.Equal(t, testCase.expectUser, user)
 			assert.Equal(t, testCase.expectErr, err)
 
-			mock.ExpectationsWereMet()
+			err = mock.ExpectationsWereMet()
+
+			assert.NoError(t, err, "didn't expect errors")
 		})
 	}
 }
@@ -420,7 +428,9 @@ func TestUpsertRefreshToken(t *testing.T) {
 
 			assert.Equal(t, testCase.expectErr, err)
 
-			mock.ExpectationsWereMet()
+			err = mock.ExpectationsWereMet()
+
+			assert.NoError(t, err, "didn't expect errors")
 		})
 	}
 }
@@ -513,7 +523,9 @@ func TestGetRefreshToken(t *testing.T) {
 			assert.Equal(t, testCase.expectErr, err)
 			assert.Equal(t, testCase.expectToken, token)
 
-			mock.ExpectationsWereMet()
+			err = mock.ExpectationsWereMet()
+
+			assert.NoError(t, err, "didn't expect errors")
 		})
 	}
 }
