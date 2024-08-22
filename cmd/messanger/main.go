@@ -76,7 +76,13 @@ func main() {
 	}
 	server.Start(gOpt)
 
-	httpServer := http.New(log, cfg.Grpc.Address+":"+cfg.Grpc.Port, cfg.Http.Addr+":"+cfg.Http.Port)
+	httpServer := http.New(
+		http.WithLogger(log),
+		http.WithGrpcGateway(cfg.Grpc.Address+":"+cfg.Grpc.Port),
+		http.WithHttpAddr(cfg.Http.Addr+":"+cfg.Http.Port),
+		http.WithPrometheus(),
+	)
+
 	httpServer.Start()
 
 	//Stop application

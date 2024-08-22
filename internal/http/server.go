@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -16,15 +17,44 @@ import (
 type Server struct {
 	log *slog.Logger
 
-	grpcAddr string
-	httpAddr string
+	grpcAddr   string
+	httpAddr   string
+	prometheus bool
 
 	server    *http.Server
 	isRunning bool
 }
 
-func New(log *slog.Logger, grpcAddr string, httpAddr string) *Server {
-	return &Server{log: log, grpcAddr: grpcAddr, httpAddr: httpAddr}
+func New(options ...func(*Server)) *Server {
+	server := &Server{}
+	for _, option := range options {
+		option(server)
+	}
+	return server
+}
+
+func WithLogger(log *slog.Logger) func(*Server) {
+	return func(s *Server) {
+		s.log = log
+	}
+}
+
+func WithHttpAddr(httpAddr string) func(*Server) {
+	return func(s *Server) {
+		s.httpAddr = httpAddr
+	}
+}
+
+func WithGrpcGateway(grpcAddr string) func(*Server) {
+	return func(s *Server) {
+		s.grpcAddr = grpcAddr
+	}
+}
+
+func WithPrometheus() func(*Server) {
+	return func(s *Server) {
+		s.prometheus = true
+	}
 }
 
 func (s *Server) Start() {
@@ -52,9 +82,13 @@ func (s *Server) Start() {
 		log.Error("cant register gateway", sl.Err(err))
 	}
 
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/", gwmux)
+
 	s.server = &http.Server{
 		Addr:    s.httpAddr,
-		Handler: gwmux,
+		Handler: mux,
 	}
 
 	err = s.server.ListenAndServe()

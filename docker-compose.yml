@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  messanger:
+    container_name: messanger
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./messanger", "-config", "./prod.yaml"]
+    depends_on:
+      - redis
+      - postgres
+    ports:
+      - 50001:50001
+      - 50002:50002
+    environment:
+      - DB_PASSWORD=password
+
+  postgres:
+    container_name: postgres
+    restart: always
+    image: postgres:latest
+    environment:
+      - POSTGRES_PASSWORD=password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    
+  migrations:
+    container_name: migrations
+    image: migrate/migrate:latest
+    depends_on:
+      - postgres
+    entrypoint: [ "migrate" ]
+    command: [
+      "-path", "/migrations",
+      "-database", "postgres://postgres:password@postgres:5432/postgres?sslmode=disable",
+      "up"
+    ]
+    volumes:
+      - ./migrations:/migrations
+    networks:
+      - default
+
+  redis:
+    container_name: redis
+    restart: always
+    image: redis:latest
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  prometheus:
+    image: prom/prometheus:v2.45.3
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - messanger
+    volumes:
+      - "./build/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
+      
+  grafana:
+    image: grafana/grafana:10.2.4
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    volumes:
+      - "./build/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml"
+
+      - "./build/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml"
+      - "./build/grafana/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml"
+      - "./build/grafana/dahboards:/etc/grafana/provisioning/dashboards"
