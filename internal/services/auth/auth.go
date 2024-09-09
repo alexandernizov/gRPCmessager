@@ -44,7 +44,7 @@ var (
 	ErrInternalError      = errors.New("internal error")
 )
 
-func NewService(log *slog.Logger, authStorage AuthStorage, jwtParams JwtParams) *AuthService {
+func New(log *slog.Logger, authStorage AuthStorage, jwtParams JwtParams) *AuthService {
 	return &AuthService{log: log, authStorage: authStorage, jwtParams: jwtParams}
 }
 

@@ -12,6 +12,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     ports:
       - 50001:50001
       - 50002:50002
@@ -79,3 +81,39 @@ services:
       - "./build/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml"
       - "./build/grafana/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml"
       - "./build/grafana/dahboards:/etc/grafana/provisioning/dashboards"
+
+  kafka:
+    image: 'bitnami/kafka:latest'
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      # Определяем три листенера: внешний для хост-машины, внутренний для контейнеров и контроллер
+      - KAFKA_CFG_LISTENERS=EXTERNAL://0.0.0.0:9092,INTERNAL://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # Объявляем рекламируемые адреса для каждого листенера
+      - KAFKA_CFG_ADVERTISED_LISTENERS=EXTERNAL://localhost:9092,INTERNAL://kafka:9093
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9094
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      # Устанавливаем имя inter.broker.listener.name, которое должно совпадать с одним из имен в advertised.listeners
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
+      # Включаем автоматическое создание топиков
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'test-message' | kafka-console-producer.sh --broker-list localhost:9092 --topic health-check-topic && kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic health-check-topic --from-beginning --max-messages 1 | grep 'test-message'"]
+      interval: 5s
+      timeout: 30s
+      retries: 5
+      start_period: 3s
+
+
+  kafka-ui:
+    image: 'obsidiandynamics/kafdrop:latest'
+    container_name: kafka-ui
+    ports:
+      - "9000:9000"
+    environment:
+      # Используем внутренний адрес Kafka для подключения
+      - KAFKA_BROKERCONNECT=kafka:9093

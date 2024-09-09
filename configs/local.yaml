@@ -31,3 +31,7 @@ redis:
   port: "6379"
   password: ""
   db: 0
+
+kafka:
+  host: "0.0.0.0"
+  port: "9092"

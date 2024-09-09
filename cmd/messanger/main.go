@@ -9,6 +9,8 @@ import (
 	"github.com/alexandernizov/grpcmessanger/internal/config"
 	"github.com/alexandernizov/grpcmessanger/internal/grpc"
 	"github.com/alexandernizov/grpcmessanger/internal/http"
+	"github.com/alexandernizov/grpcmessanger/internal/outbox"
+	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
 	"github.com/alexandernizov/grpcmessanger/internal/services/auth"
 	"github.com/alexandernizov/grpcmessanger/internal/services/chat"
 	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
@@ -43,7 +45,7 @@ func main() {
 
 	//Auth Service
 	jwt := auth.JwtParams{AccessTtl: cfg.User.JwtAccessTTL, RefreshTtl: cfg.User.JwtRefreshTTL, Secret: []byte(cfg.User.JwtSecret)}
-	authService := auth.NewService(log, pgDB, jwt)
+	authService := auth.New(log, pgDB, jwt)
 
 	//Connect redis
 	redisOpt := redis.ConnectOptions{
@@ -56,13 +58,24 @@ func main() {
 		panic("can't connect to redis")
 	}
 
+	//Notifier Service
+	kafkaOpt := outbox.ConnectOptions{
+		Host: cfg.Kafka.Host,
+		Port: cfg.Kafka.Port,
+	}
+	notifier, err := outbox.New(log, pgDB, kafkaOpt)
+	if err != nil {
+		log.Info("failed to connect to kafka", sl.Err(err))
+	}
+	notifier.ServePublish()
+
 	//Chat Service
 	chatOpt := chat.ChatOptions{
 		DefaultTtl:      cfg.Chat.ChatTTL,
 		MaximumCount:    cfg.Chat.MaxChatsCount,
 		MaximumMessages: cfg.Chat.MaxMessagesPerChat,
 	}
-	chatService := chat.NewService(log, chatOpt, redisDB)
+	chatService := chat.New(log, chatOpt, redisDB, pgDB)
 
 	//Start Grpc Server
 	server := grpc.NewServer(log)

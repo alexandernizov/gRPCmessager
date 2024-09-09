@@ -12,6 +12,7 @@ type Config struct {
 	Env      string         `yaml:"env"`
 	Postgres PostgresConfig `yaml:"postgres"`
 	Redis    RedisConfig    `yaml:"redis"`
+	Kafka    KafkaConfig    `yaml:"kafka"`
 	User     UserConfig     `yaml:"user"`
 	Grpc     GrpcConfig     `yaml:"grpc"`
 	Http     HttpConfig     `yaml:"http"`
@@ -54,6 +55,11 @@ type UserConfig struct {
 	JwtAccessTTL  time.Duration `yaml:"jwt_access_ttl"`
 	JwtRefreshTTL time.Duration `yaml:"jwt_refresh_ttl"`
 	JwtSecret     string        `yaml:"jwt_secret"`
+}
+
+type KafkaConfig struct {
+	Host string `yaml:"host"`
+	Port string `yaml:"port"`
 }
 
 func MustLoad() *Config {

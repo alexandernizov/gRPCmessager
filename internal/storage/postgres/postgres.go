@@ -235,3 +235,28 @@ func (p *Postgres) GetRefreshToken(ctx context.Context, userUuid uuid.UUID) (str
 
 	return token, nil
 }
+
+func (p *Postgres) CreateChatOutbox(ctx context.Context, chat domain.Chat) error {
+	const op = "postgres.CreateChatOutbox"
+	log := p.log.With(slog.String("op", op))
+
+	tx, closeTx := p.extractTx(ctx)
+
+	query := `INSERT INTO chats_outbox (chat, author, read_only) VALUES ($1,$2,$3)`
+	_, err := tx.Exec(query, chat.Uuid, chat.Owner.Uuid, chat.Readonly)
+	closeTx(err)
+
+	if err != nil {
+		log.Info("error: ", sl.Err(err))
+		return ErrInternal
+	}
+
+	return nil
+}
+
+func (p *Postgres) GetChatsToSend() {
+
+}
+func (p *Postgres) ConfirmChatsSended() {
+
+}

@@ -21,17 +21,23 @@ type ChatStorage interface {
 	GetChatHistory(ctx context.Context, chatUuid uuid.UUID) ([]*domain.Message, error)
 }
 
+type ChatNotifier interface {
+	CreateChatOutbox(ctx context.Context, chat domain.Chat) error
+}
+
 var (
-	ErrInternal         = errors.New("internal error")
-	ErrMaximumChats     = errors.New("maximum chats created already")
-	ErrPermissionDenied = errors.New("have no permission for this operation")
-	ErrChatNotFound     = errors.New("chat not found")
+	ErrInternal               = errors.New("internal error")
+	ErrMaximumChats           = errors.New("maximum chats created already")
+	ErrPermissionDenied       = errors.New("have no permission for this operation")
+	ErrChatNotFound           = errors.New("chat not found")
+	ErrNotificationNotCreated = errors.New("notification was not created")
 )
 
 type ChatService struct {
-	log         *slog.Logger
-	chatOptions ChatOptions
-	chatStorage ChatStorage
+	log          *slog.Logger
+	chatOptions  ChatOptions
+	chatStorage  ChatStorage
+	chatNotifier ChatNotifier
 }
 
 type ChatOptions struct {
@@ -40,8 +46,8 @@ type ChatOptions struct {
 	MaximumMessages int
 }
 
-func NewService(log *slog.Logger, chatOptions ChatOptions, chatStorage ChatStorage) *ChatService {
-	return &ChatService{log: log, chatOptions: chatOptions, chatStorage: chatStorage}
+func New(log *slog.Logger, chatOptions ChatOptions, chatStorage ChatStorage, chatNotifier ChatNotifier) *ChatService {
+	return &ChatService{log: log, chatOptions: chatOptions, chatStorage: chatStorage, chatNotifier: chatNotifier}
 }
 
 func (c *ChatService) NewChat(ctx context.Context, ownerUuid uuid.UUID, readonly bool, ttl int) (*domain.Chat, error) {
@@ -67,6 +73,11 @@ func (c *ChatService) NewChat(ctx context.Context, ownerUuid uuid.UUID, readonly
 	createdChat, err := c.chatStorage.CreateChat(ctx, newChat)
 	if err != nil {
 		return nil, ErrInternal
+	}
+
+	err = c.chatNotifier.CreateChatOutbox(ctx, newChat)
+	if err != nil {
+		return createdChat, ErrNotificationNotCreated
 	}
 
 	return createdChat, nil
