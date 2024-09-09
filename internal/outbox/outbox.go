@@ -1,17 +1,23 @@
 package outbox
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"github.com/alexandernizov/grpcmessanger/internal/domain"
 	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
+	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
 	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/google/uuid"
 )
 
 type ChatsProvider interface {
-	GetChatsToSend()
-	ConfirmChatsSended()
+	GetNextOutboxChat(ctx context.Context) (*domain.Chat, error)
+	ConfirmOutboxChatSended(ctx context.Context, chatUuid uuid.UUID) error
 }
 
 type Publisher struct {
@@ -55,7 +61,6 @@ func New(log *slog.Logger, chatsProvider ChatsProvider, cOpts ConnectOptions) (*
 }
 
 func (p *Publisher) ServePublish() {
-	p.log.Info("here 0")
 	go func() {
 		const op = "postgres.ServePublish"
 		log := p.log.With(slog.String("op", op))
@@ -77,19 +82,36 @@ func (p *Publisher) ServePublish() {
 		const op = "postgres.ServePublish"
 		log := p.log.With(slog.String("op", op))
 
-		log.Info("here 1")
 		kafkaTopic := topicChat
 
 		for {
-			log.Info("here 2")
-			err := p.producer.Produce(&kafka.Message{
+			time.Sleep(5 * time.Second)
+			chat, err := p.chats.GetNextOutboxChat(context.TODO())
+			if err != nil {
+				if errors.Is(err, postgres.ErrNoOutboxChats) {
+					continue
+				}
+				log.Warn("error for getting next outbox chat", sl.Err(err))
+				continue
+			}
+			if chat == nil {
+				continue
+			}
+
+			json, err := json.Marshal(chat)
+			if err != nil {
+				log.Warn("error for marshalling", sl.Err(err))
+			}
+
+			err = p.producer.Produce(&kafka.Message{
 				TopicPartition: kafka.TopicPartition{Topic: &kafkaTopic, Partition: kafka.PartitionAny},
-				Key:            []byte("govno"),
-				Value:          []byte("zalupa"),
+				Key:            []byte(chat.Uuid.String()),
+				Value:          json,
 			}, nil)
 			if err != nil {
 				log.Info("error: ", sl.Err(err))
 			}
+
 			p.producer.Flush(15 * 1000)
 		}
 	}()

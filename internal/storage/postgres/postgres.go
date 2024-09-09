@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/alexandernizov/grpcmessanger/internal/domain"
 	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
@@ -31,6 +32,7 @@ var (
 	ErrInternal      = errors.New("internal error")
 	ErrUserNotFound  = errors.New("user is not found")
 	ErrTokenNotFound = errors.New("token is not found")
+	ErrNoOutboxChats = errors.New("have no outbox chats to send")
 )
 
 func New(log *slog.Logger, db *sql.DB) *Postgres {
@@ -70,6 +72,14 @@ type User struct {
 	Uuid         uuid.UUID `pg:"uuid"`
 	Login        string    `pg:"login"`
 	PasswordHash []byte    `pg:"password"`
+}
+
+type Chat struct {
+	Id       int       `pg:"uuid"`
+	Chat     uuid.UUID `pg:"chat"`
+	Author   uuid.UUID `pg:"author"`
+	ReadOnly bool      `pg:"read_only"`
+	SentAt   time.Time `pg:"sent_to_kafka"`
 }
 
 type txKey struct{}
@@ -242,7 +252,7 @@ func (p *Postgres) CreateChatOutbox(ctx context.Context, chat domain.Chat) error
 
 	tx, closeTx := p.extractTx(ctx)
 
-	query := `INSERT INTO chats_outbox (chat, author, read_only) VALUES ($1,$2,$3)`
+	query := `INSERT INTO outbox_chats (chat, author, read_only) VALUES ($1,$2,$3)`
 	_, err := tx.Exec(query, chat.Uuid, chat.Owner.Uuid, chat.Readonly)
 	closeTx(err)
 
@@ -254,9 +264,28 @@ func (p *Postgres) CreateChatOutbox(ctx context.Context, chat domain.Chat) error
 	return nil
 }
 
-func (p *Postgres) GetChatsToSend() {
+func (p *Postgres) GetNextOutboxChat(ctx context.Context) (*domain.Chat, error) {
+	const op = "postgres.GetNextOutboxChat"
+	log := p.log.With(slog.String("op", op))
 
+	tx, closeTx := p.extractTx(ctx)
+
+	pgChat := Chat{}
+
+	query := "SELECT id, chat, author, read_only, sent_to_kafka FROM outbox_chats WHERE sent_to_kafka IS NULL LIMIT 1"
+	row := tx.QueryRow(query)
+	err := row.Scan(&pgChat.Chat, &pgChat.Author, &pgChat.ReadOnly, &pgChat.SentAt)
+	closeTx(err)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoOutboxChats
+	}
+	if err != nil {
+		log.Info("error: ", sl.Err(err))
+		return nil, ErrInternal
+	}
+	return &domain.Chat{Uuid: pgChat.Chat, Owner: domain.User{Uuid: pgChat.Author}, Readonly: pgChat.ReadOnly}, nil
 }
-func (p *Postgres) ConfirmChatsSended() {
-
+func (p *Postgres) ConfirmOutboxChatSended(ctx context.Context, chatUuid uuid.UUID) error {
+	return nil
 }

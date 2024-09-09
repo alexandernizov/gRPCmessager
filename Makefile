@@ -7,10 +7,7 @@ test:
 
 build-docker:
 	echo "Building messanger-app"
-	GOOS=linux GOARCH=amd64 go build -o  messanger ./cmd/messanger
-	echo "Starting docker-compose"
-	docker-compose up --build messanger
-
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=x86_64-linux-musl-gcc go build -o messanger --ldflags '-linkmode external -extldflags "-static"' -tags musl ./cmd/messanger
 
 generate:
 	go generate ./...
@@ -27,7 +24,6 @@ migrate-up:
 
 migrate-down:
 	migrate -path ./migrations -database 'postgres://postgres:password@localhost:5432/postgres?sslmode=disable' down
-
 
 lint:
 	golangci-lint run
