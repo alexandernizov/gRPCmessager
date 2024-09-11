@@ -134,7 +134,7 @@ func (r *Redis) PostMessage(ctx context.Context, chat uuid.UUID, message domain.
 
 	r.db.LPush(ctx, messagesKey+chat.String(), jsonMessage)
 
-	return nil, nil
+	return &domain.Message{AuthorUuid: newMessage.AuthorUuid, Body: newMessage.Body, Published: newMessage.Published}, nil
 }
 
 func (r *Redis) TrimMessages(ctx context.Context, chat uuid.UUID, maximumMessages int) (bool, error) {

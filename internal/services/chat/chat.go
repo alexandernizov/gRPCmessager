@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -23,6 +24,7 @@ type ChatStorage interface {
 
 type ChatNotifier interface {
 	CreateChatOutbox(ctx context.Context, chat domain.Chat) error
+	CreateMessageOutbox(ctx context.Context, message domain.Message) error
 }
 
 var (
@@ -102,6 +104,11 @@ func (c *ChatService) NewMessage(ctx context.Context, chatUuid uuid.UUID, author
 	_, err = c.chatStorage.TrimMessages(ctx, chatUuid, c.chatOptions.MaximumMessages)
 	if err != nil {
 		c.log.Error("error with during messages triming", sl.Err(err))
+	}
+	fmt.Println(createdMessage)
+	err = c.chatNotifier.CreateMessageOutbox(ctx, *createdMessage)
+	if err != nil {
+		return createdMessage, ErrNotificationNotCreated
 	}
 	return createdMessage, nil
 }

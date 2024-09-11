@@ -9,6 +9,14 @@ build-docker:
 	echo "Building messanger-app"
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=x86_64-linux-musl-gcc go build -o messanger --ldflags '-linkmode external -extldflags "-static"' -tags musl ./cmd/messanger
 
+up:
+	docker-compose down
+	docker rmi grpcmessager-messanger:latest || true
+	docker-compose build
+	docker-compose up -d
+
+rebuild: build-docker up
+
 generate:
 	go generate ./...
 

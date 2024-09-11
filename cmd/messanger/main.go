@@ -63,7 +63,7 @@ func main() {
 		Host: cfg.Kafka.Host,
 		Port: cfg.Kafka.Port,
 	}
-	notifier, err := outbox.New(log, pgDB, kafkaOpt)
+	notifier, err := outbox.New(log, pgDB, pgDB, kafkaOpt)
 	if err != nil {
 		log.Info("failed to connect to kafka", sl.Err(err))
 	}

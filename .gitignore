@@ -2,3 +2,4 @@
 .vscode
 auth-app
 chat-app
+docker-compose-kafka.yml

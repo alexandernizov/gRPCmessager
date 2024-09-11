@@ -19,3 +19,12 @@ CREATE TABLE outbox_chats
     read_only BOOLEAN NOT NULL,
     sent_to_kafka TIMESTAMP
 );
+
+CREATE TABLE outbox_messages
+(
+    id SERIAL PRIMARY KEY,
+    author UUID NOT NULL,
+    body VARCHAR(255) NOT NULL,
+    published TIMESTAMP NOT NULL,
+    sent_to_kafka TIMESTAMP
+);

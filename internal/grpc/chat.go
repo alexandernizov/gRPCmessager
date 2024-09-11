@@ -38,6 +38,9 @@ func (c *ChatServer) NewChat(ctx context.Context, req *chatpb.NewChatReq) (*chat
 
 	chat, err := c.Provider.NewChat(ctx, ownerUuid, req.Readonly, int(req.TtlSecs))
 	if err != nil {
+		if errors.Is(err, chatServ.ErrNotificationNotCreated) {
+			return &chatpb.NewChatResp{Uuid: chat.Uuid.String()}, nil
+		}
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	//Send response
@@ -70,6 +73,9 @@ func (c *ChatServer) NewMessage(ctx context.Context, req *chatpb.NewMessageReq) 
 		}
 		if errors.Is(err, chatServ.ErrPermissionDenied) {
 			return nil, status.Error(codes.PermissionDenied, "Chat is not found")
+		}
+		if errors.Is(err, chatServ.ErrNotificationNotCreated) {
+			return &chatpb.NewMessageResp{Published: true}, nil
 		}
 		return nil, status.Error(codes.Internal, err.Error())
 	}
