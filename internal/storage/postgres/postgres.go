@@ -8,10 +8,13 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/alexandernizov/grpcmessanger/api/gen/outbox"
 	"github.com/alexandernizov/grpcmessanger/internal/domain"
 	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
+	"github.com/alexandernizov/grpcmessanger/internal/storage"
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
+	"google.golang.org/protobuf/proto"
 )
 
 type Postgres struct {
@@ -28,19 +31,18 @@ type ConnectOptions struct {
 }
 
 var (
-	ErrNoConnection     = errors.New("can't establish connection to db")
-	ErrInternal         = errors.New("internal error")
-	ErrUserNotFound     = errors.New("user is not found")
-	ErrTokenNotFound    = errors.New("token is not found")
-	ErrNoOutboxChats    = errors.New("have no outbox chats to send")
-	ErrNoOutboxMessages = errors.New("have no outbox messages to send")
+	ErrNoConnection = errors.New("can't establish connection to db")
 )
 
 const (
-	usersTable          = "users"
-	refreshTokensTable  = "refresh_tokens"
-	outboxChatsTable    = "outbox_chats"
-	outboxMessagesTable = "outbox_messages"
+	usersTable         = "users"
+	refreshTokensTable = "refresh_tokens"
+	chatsTable         = "chats"
+	messagesTable      = "messages"
+	outboxTable        = "outbox"
+
+	chatTopic    = "Chat"
+	messageTopic = "Message"
 )
 
 func New(log *slog.Logger, db *sql.DB) *Postgres {
@@ -83,11 +85,18 @@ type User struct {
 }
 
 type Chat struct {
-	Id       int        `pg:"uuid"`
-	Chat     uuid.UUID  `pg:"chat"`
-	Author   uuid.UUID  `pg:"author"`
+	Uuid     uuid.UUID  `pg:"uuid"`
+	Owner    uuid.UUID  `pg:"owner"`
 	ReadOnly bool       `pg:"read_only"`
-	SentAt   *time.Time `pg:"sent_to_kafka"`
+	Deadline *time.Time `pg:"dead_line"`
+}
+
+type Message struct {
+	Id         int        `pg:"id"`
+	ChatUuid   uuid.UUID  `pg:"chat_uuid"`
+	AuthorUuid uuid.UUID  `pg:"author_uuid"`
+	Body       []byte     `pg:"body"`
+	Published  *time.Time `pg:"dead_line"`
 }
 
 type txKey struct{}
@@ -124,7 +133,7 @@ func (p *Postgres) WithTx(ctx context.Context, tFunc func(ctx context.Context) e
 	tx, beginError := p.db.Begin()
 	if beginError != nil {
 		log.Error("error with Start transaction", sl.Err(beginError))
-		return ErrInternal
+		return storage.ErrInternal
 	}
 
 	ctxTx := injectTx(ctx, tx)
@@ -134,14 +143,14 @@ func (p *Postgres) WithTx(ctx context.Context, tFunc func(ctx context.Context) e
 	if fnError != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			log.Error("error with Rollback transaction", sl.Err(rollbackErr))
-			return ErrInternal
+			return storage.ErrInternal
 		}
 		return fnError
 	}
 
 	if commitError := tx.Commit(); commitError != nil {
 		log.Error("error with Commit transaction", sl.Err(commitError))
-		return ErrInternal
+		return storage.ErrInternal
 	}
 
 	return nil
@@ -161,7 +170,7 @@ func (p *Postgres) CreateUser(ctx context.Context, user domain.User) (*domain.Us
 
 	if err != nil {
 		log.Error("error: %v", sl.Err(err))
-		return nil, ErrInternal
+		return nil, storage.ErrInternal
 	}
 
 	return &user, nil
@@ -181,11 +190,11 @@ func (p *Postgres) GetUserByLogin(ctx context.Context, login string) (*domain.Us
 	closeTx(err)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrUserNotFound
+		return nil, storage.ErrUserNotFound
 	}
 	if err != nil {
 		log.Info("error: ", sl.Err(err))
-		return nil, ErrInternal
+		return nil, storage.ErrInternal
 	}
 
 	return &domain.User{Uuid: pgUser.Uuid, Login: pgUser.Login, PasswordHash: pgUser.PasswordHash}, nil
@@ -205,11 +214,11 @@ func (p *Postgres) GetUserByUuid(ctx context.Context, uuid uuid.UUID) (*domain.U
 	closeTx(err)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrUserNotFound
+		return nil, storage.ErrUserNotFound
 	}
 	if err != nil {
 		log.Info("error: ", sl.Err(err))
-		return nil, ErrInternal
+		return nil, storage.ErrInternal
 	}
 
 	return &domain.User{Uuid: pgUser.Uuid, Login: pgUser.Login, PasswordHash: pgUser.PasswordHash}, nil
@@ -227,7 +236,7 @@ func (p *Postgres) UpsertRefreshToken(ctx context.Context, userUuid uuid.UUID, r
 
 	if err != nil {
 		log.Info("error: ", sl.Err(err))
-		return ErrInternal
+		return storage.ErrInternal
 	}
 
 	return nil
@@ -247,128 +256,238 @@ func (p *Postgres) GetRefreshToken(ctx context.Context, userUuid uuid.UUID) (str
 	closeTx(err)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrTokenNotFound
+		return "", storage.ErrTokenNotFound
 	}
 	if err != nil {
 		log.Info("error: ", sl.Err(err))
-		return "", ErrInternal
+		return "", storage.ErrInternal
 	}
 
 	return token, nil
 }
 
-func (p *Postgres) CreateChatOutbox(ctx context.Context, chat domain.Chat) error {
-	const op = "postgres.CreateChatOutbox"
+func (p *Postgres) CreateChat(ctx context.Context, chat domain.Chat) (*domain.Chat, error) {
+	const op = "postgres.CreateChat"
 	log := p.log.With(slog.String("op", op))
+
+	msg := outbox.OutboxChat{
+		Uuid:      chat.Uuid.String(),
+		OwnerUuid: chat.Owner.Uuid.String(),
+		Readonly:  chat.Readonly,
+		Deadline:  chat.Deadline.String(),
+	}
+
+	marshalledMessage, err := proto.Marshal(&msg)
+	if err != nil {
+		return &domain.Chat{}, storage.ErrInternal
+	}
 
 	tx, closeTx := p.extractTx(ctx)
 
-	query := fmt.Sprintf("INSERT INTO %s (chat, author, read_only) VALUES ($1,$2,$3)", outboxChatsTable)
-	_, err := tx.Exec(query, chat.Uuid, chat.Owner.Uuid, chat.Readonly)
+	pgChat := Chat{Uuid: chat.Uuid, Owner: chat.Owner.Uuid, ReadOnly: chat.Readonly, Deadline: &chat.Deadline}
+
+	query1 := fmt.Sprintf("INSERT INTO %s (uuid, owner, read_only, dead_line) VALUES ($1,$2,$3,$4)", chatsTable)
+	query2 := fmt.Sprintf("INSERT INTO %s (uuid, topic, message) VALUES ($1,$2,$3)", outboxTable)
+	_, err = tx.Exec(query1, pgChat.Uuid, pgChat.Owner, pgChat.ReadOnly, pgChat.Deadline)
+	_, err = tx.Exec(query2, chat.Uuid, chatTopic, marshalledMessage)
+
 	closeTx(err)
 
 	if err != nil {
-		log.Info("error: ", sl.Err(err))
-		return ErrInternal
+		log.Error("error: %v", sl.Err(err))
+		return nil, storage.ErrInternal
 	}
 
-	return nil
+	return &chat, nil
 }
 
-func (p *Postgres) GetNextOutboxChat(ctx context.Context) (*domain.Chat, error) {
-	const op = "postgres.GetNextOutboxChat"
+func (p *Postgres) GetChat(ctx context.Context, chatUuid uuid.UUID) (*domain.Chat, error) {
+	const op = "postgres.GetChat"
 	log := p.log.With(slog.String("op", op))
 
 	tx, closeTx := p.extractTx(ctx)
 
-	pgChat := Chat{}
+	var chat Chat
 
-	query := fmt.Sprintf("SELECT chat, author, read_only, sent_to_kafka FROM %s WHERE sent_to_kafka IS NULL LIMIT 1", outboxChatsTable)
-	row := tx.QueryRow(query)
-	err := row.Scan(&pgChat.Chat, &pgChat.Author, &pgChat.ReadOnly, &pgChat.SentAt)
+	query := fmt.Sprintf("SELECT uuid, owner, read_only, dead_line FROM %s WHERE uuid = $1;", chatsTable)
+	row := tx.QueryRow(query, chatUuid)
+	err := row.Scan(&chat.Uuid, &chat.Owner, &chat.ReadOnly, &chat.Deadline)
 	closeTx(err)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNoOutboxChats
+		return nil, storage.ErrTokenNotFound
 	}
 	if err != nil {
 		log.Info("error: ", sl.Err(err))
-		return nil, ErrInternal
+		return nil, storage.ErrInternal
 	}
-	return &domain.Chat{Uuid: pgChat.Chat, Owner: domain.User{Uuid: pgChat.Author}, Readonly: pgChat.ReadOnly}, nil
+
+	user, err := p.GetUserByUuid(ctx, chat.Owner)
+	if err != nil {
+		return nil, storage.ErrInternal
+	}
+
+	return &domain.Chat{Uuid: chat.Uuid, Owner: *user, Readonly: chat.ReadOnly, Deadline: *chat.Deadline}, nil
 }
 
-func (p *Postgres) ConfirmOutboxChatSended(ctx context.Context, chatUuid uuid.UUID) error {
-	const op = "postgres.ConfirmOutboxChatSended"
+func (p *Postgres) ChatsCount(ctx context.Context) (int, error) {
+	const op = "postgres.ChatsCount"
 	log := p.log.With(slog.String("op", op))
 
 	tx, closeTx := p.extractTx(ctx)
 
-	query := fmt.Sprintf(`UPDATE %s SET sent_to_kafka = $1 WHERE chat = $2`, outboxChatsTable)
-	_, err := tx.Exec(query, time.Now(), chatUuid.String())
-	closeTx(err)
-
-	if err != nil {
-		log.Info("error: ", sl.Err(err))
-		return ErrInternal
-	}
-	return nil
-}
-
-func (p *Postgres) CreateMessageOutbox(ctx context.Context, message domain.Message) error {
-	const op = "postgres.CreateMessageOutbox"
-	log := p.log.With(slog.String("op", op))
-
-	tx, closeTx := p.extractTx(ctx)
-
-	query := fmt.Sprintf("INSERT INTO %s (author, body, published) VALUES ($1,$2,$3)", outboxMessagesTable)
-	_, err := tx.Exec(query, message.AuthorUuid, message.Body, message.Published)
-	closeTx(err)
-
-	if err != nil {
-		log.Info("error: ", sl.Err(err))
-		return ErrInternal
-	}
-
-	return nil
-}
-
-func (p *Postgres) GetNextOutboxMessage(ctx context.Context) (*domain.Message, error) {
-	const op = "postgres.GetNextOutboxMessage"
-	log := p.log.With(slog.String("op", op))
-
-	tx, closeTx := p.extractTx(ctx)
-
-	msg := domain.Message{}
-
-	query := fmt.Sprintf("SELECT id, author, body, published FROM %s WHERE sent_to_kafka IS NULL LIMIT 1", outboxMessagesTable)
+	var count int
+	query := "SELECT count (*) FROM chats;"
 	row := tx.QueryRow(query)
-	err := row.Scan(&msg.Id, &msg.AuthorUuid, &msg.Body, &msg.Published)
+	err := row.Scan(&count)
+	closeTx(err)
+
+	if err != nil {
+		log.Info("error: ", sl.Err(err))
+		return 0, storage.ErrInternal
+	}
+
+	return count, nil
+}
+
+func (p *Postgres) PostMessage(ctx context.Context, chat uuid.UUID, message domain.Message) (*domain.Message, error) {
+	const op = "postgres.PostMessage"
+	log := p.log.With(slog.String("op", op))
+
+	msg := outbox.OutboxMessage{
+		Id:         int64(message.Id),
+		AuthorUuid: message.AuthorUuid.String(),
+		Body:       message.Body,
+		Published:  message.Published.String(),
+	}
+
+	marshalledMessage, err := proto.Marshal(&msg)
+	if err != nil {
+		return &domain.Message{}, storage.ErrInternal
+	}
+
+	tx, closeTx := p.extractTx(ctx)
+
+	pgMessage := Message{ChatUuid: chat, AuthorUuid: message.AuthorUuid, Body: []byte(message.Body), Published: &message.Published}
+
+	query1 := fmt.Sprintf("INSERT INTO %s (chat_uuid, author_uuid, body, published) VALUES ($1,$2,$3,$4)", messagesTable)
+	query2 := fmt.Sprintf("INSERT INTO %s (uuid, topic, message) VALUES ($1,$2,$3)", outboxTable)
+
+	_, err = tx.Exec(query1, pgMessage.ChatUuid, pgMessage.AuthorUuid, pgMessage.Body, pgMessage.Published)
+	_, err = tx.Exec(query2, uuid.New(), messageTopic, marshalledMessage)
+	closeTx(err)
+
+	if err != nil {
+		log.Error("error: %v", sl.Err(err))
+		return nil, storage.ErrInternal
+	}
+
+	return &message, nil
+}
+
+func (p *Postgres) TrimMessages(ctx context.Context, chat uuid.UUID, maximumMessages int) (bool, error) {
+	const op = "postgres.TrimMessages"
+	log := p.log.With(slog.String("op", op))
+
+	tx, closeTx := p.extractTx(ctx)
+
+	query := `
+	WITH numbered_messages AS (
+    	SELECT 
+        	id,
+        	ROW_NUMBER() OVER (PARTITION BY chat_uuid ORDER BY published DESC) AS row_num
+    	FROM 
+        	messages
+		WHERE
+			chat_uuid = $1
+	)
+	DELETE FROM messages
+	WHERE id IN (
+    	SELECT id
+    	FROM numbered_messages
+    	WHERE row_num > $2
+	);`
+
+	_, err := tx.Exec(query, chat, maximumMessages)
+	closeTx(err)
+	if err != nil {
+		log.Error("error: %v", sl.Err(err))
+		return false, storage.ErrInternal
+	}
+
+	return true, nil
+}
+
+func (p *Postgres) GetChatHistory(ctx context.Context, chatUuid uuid.UUID) ([]*domain.Message, error) {
+	const op = "postgres.GetChatHistory"
+	log := p.log.With(slog.String("op", op))
+
+	tx, closeTx := p.extractTx(ctx)
+
+	var res []*domain.Message
+
+	query := fmt.Sprintf("SELECT id, author_uuid, body, published FROM %s WHERE chat_uuid = $1", messagesTable)
+	rows, err := tx.Query(query, chatUuid)
+	defer closeTx(err)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return res, nil
+		}
+		log.Error("error: ", sl.Err(err))
+		return nil, err
+	}
+
+	for rows.Next() {
+		var msg domain.Message
+		err := rows.Scan(&msg.Id, &msg.AuthorUuid, &msg.Body, &msg.Published)
+		if err != nil {
+			log.Error("error scanning row: ", sl.Err(err))
+			return nil, err
+		}
+		res = append(res, &msg)
+	}
+
+	return res, nil
+}
+
+func (p *Postgres) GetNextOutbox(ctx context.Context) (*domain.Outbox, error) {
+	const op = "postgres.GetNextOutbox"
+	log := p.log.With(slog.String("op", op))
+
+	tx, closeTx := p.extractTx(ctx)
+
+	var next domain.Outbox
+
+	query := fmt.Sprintf("SELECT uuid, topic, message FROM %s WHERE sent_at IS NULL;", outboxTable)
+	row := tx.QueryRow(query)
+	err := row.Scan(&next.Uuid, &next.Topic, &next.Message)
 	closeTx(err)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNoOutboxMessages
+		return nil, storage.ErrNoOutbox
 	}
 	if err != nil {
 		log.Info("error: ", sl.Err(err))
-		return nil, ErrInternal
+		return nil, storage.ErrInternal
 	}
-	return &msg, nil
+
+	return &next, nil
 }
 
-func (p *Postgres) ConfirmOutboxMessageSended(ctx context.Context, messageId int) error {
-	const op = "postgres.ConfirmOutboxMessageSended"
+func (p *Postgres) ConfirmOutboxSended(ctx context.Context, outboxUuid uuid.UUID) error {
+	const op = "postgres.ConfigOutboxSended"
 	log := p.log.With(slog.String("op", op))
 
 	tx, closeTx := p.extractTx(ctx)
 
-	query := fmt.Sprintf(`UPDATE %s SET sent_to_kafka = $1 WHERE id = $2`, outboxMessagesTable)
-	_, err := tx.Exec(query, time.Now(), messageId)
+	query := fmt.Sprintf("UPDATE %s SET sent_at = current_timestamp WHERE uuid = $1", outboxTable)
+	_, err := tx.Exec(query, outboxUuid)
 	closeTx(err)
 
 	if err != nil {
 		log.Info("error: ", sl.Err(err))
-		return ErrInternal
+		return storage.ErrInternal
 	}
+
 	return nil
 }

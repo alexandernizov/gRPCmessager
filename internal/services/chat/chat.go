@@ -9,7 +9,7 @@ import (
 
 	"github.com/alexandernizov/grpcmessanger/internal/domain"
 	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
-	"github.com/alexandernizov/grpcmessanger/internal/storage/redis"
+	"github.com/alexandernizov/grpcmessanger/internal/storage"
 	"github.com/google/uuid"
 )
 
@@ -22,11 +22,6 @@ type ChatStorage interface {
 	GetChatHistory(ctx context.Context, chatUuid uuid.UUID) ([]*domain.Message, error)
 }
 
-type ChatNotifier interface {
-	CreateChatOutbox(ctx context.Context, chat domain.Chat) error
-	CreateMessageOutbox(ctx context.Context, message domain.Message) error
-}
-
 var (
 	ErrInternal               = errors.New("internal error")
 	ErrMaximumChats           = errors.New("maximum chats created already")
@@ -36,10 +31,9 @@ var (
 )
 
 type ChatService struct {
-	log          *slog.Logger
-	chatOptions  ChatOptions
-	chatStorage  ChatStorage
-	chatNotifier ChatNotifier
+	log         *slog.Logger
+	chatOptions ChatOptions
+	chatStorage ChatStorage
 }
 
 type ChatOptions struct {
@@ -48,8 +42,8 @@ type ChatOptions struct {
 	MaximumMessages int
 }
 
-func New(log *slog.Logger, chatOptions ChatOptions, chatStorage ChatStorage, chatNotifier ChatNotifier) *ChatService {
-	return &ChatService{log: log, chatOptions: chatOptions, chatStorage: chatStorage, chatNotifier: chatNotifier}
+func New(log *slog.Logger, chatOptions ChatOptions, chatStorage ChatStorage) *ChatService {
+	return &ChatService{log: log, chatOptions: chatOptions, chatStorage: chatStorage}
 }
 
 func (c *ChatService) NewChat(ctx context.Context, ownerUuid uuid.UUID, readonly bool, ttl int) (*domain.Chat, error) {
@@ -77,11 +71,6 @@ func (c *ChatService) NewChat(ctx context.Context, ownerUuid uuid.UUID, readonly
 		return nil, ErrInternal
 	}
 
-	err = c.chatNotifier.CreateChatOutbox(ctx, newChat)
-	if err != nil {
-		return createdChat, ErrNotificationNotCreated
-	}
-
 	return createdChat, nil
 }
 
@@ -89,7 +78,7 @@ func (c *ChatService) NewMessage(ctx context.Context, chatUuid uuid.UUID, author
 	newMessage := domain.Message{AuthorUuid: authorUuid, Body: message, Published: time.Now()}
 	chat, err := c.chatStorage.GetChat(ctx, chatUuid)
 	if err != nil {
-		if errors.Is(err, redis.ErrChatNotFound) {
+		if errors.Is(err, storage.ErrChatNotFound) {
 			return nil, ErrChatNotFound
 		}
 		return nil, ErrInternal
@@ -106,10 +95,6 @@ func (c *ChatService) NewMessage(ctx context.Context, chatUuid uuid.UUID, author
 		c.log.Error("error with during messages triming", sl.Err(err))
 	}
 	fmt.Println(createdMessage)
-	err = c.chatNotifier.CreateMessageOutbox(ctx, *createdMessage)
-	if err != nil {
-		return createdMessage, ErrNotificationNotCreated
-	}
 	return createdMessage, nil
 }
 

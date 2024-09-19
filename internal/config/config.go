@@ -9,14 +9,22 @@ import (
 )
 
 type Config struct {
-	Env      string         `yaml:"env"`
+	Env   string      `yaml:"env"`
+	Grpc  GrpcConfig  `yaml:"grpc"`
+	Http  HttpConfig  `yaml:"http"`
+	Chat  ChatConfig  `yaml:"chat"`
+	User  UserConfig  `yaml:"user"`
+	Kafka KafkaConfig `yaml:"kafka"`
+
+	Storage  StorageConfig  `yaml:"storage"`
 	Postgres PostgresConfig `yaml:"postgres"`
 	Redis    RedisConfig    `yaml:"redis"`
-	Kafka    KafkaConfig    `yaml:"kafka"`
-	User     UserConfig     `yaml:"user"`
-	Grpc     GrpcConfig     `yaml:"grpc"`
-	Http     HttpConfig     `yaml:"http"`
-	Chat     ChatConfig     `yaml:"chat"`
+}
+
+type GrpcConfig struct {
+	Address        string        `yaml:"address"`
+	Port           string        `yaml:"port"`
+	RequestTimeout time.Duration `yaml:"request_timeout"`
 }
 
 type HttpConfig struct {
@@ -24,31 +32,10 @@ type HttpConfig struct {
 	Port string `yaml:"port"`
 }
 
-type RedisConfig struct {
-	Addr     string `yaml:"address"`
-	Port     string `yaml:"port"`
-	Password string `yaml:"password"`
-	Db       int    `yaml:"db"`
-}
-
 type ChatConfig struct {
 	MaxChatsCount      int           `yaml:"maximum_chats_count"`
 	MaxMessagesPerChat int           `yaml:"messages_per_chat"`
 	ChatTTL            time.Duration `yaml:"chat_ttl"`
-}
-
-type PostgresConfig struct {
-	Host     string `yaml:"host"`
-	Port     string `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	DBname   string `yaml:"dbname"`
-}
-
-type GrpcConfig struct {
-	Address        string        `yaml:"address"`
-	Port           string        `yaml:"port"`
-	RequestTimeout time.Duration `yaml:"request_timeout"`
 }
 
 type UserConfig struct {
@@ -60,6 +47,27 @@ type UserConfig struct {
 type KafkaConfig struct {
 	Host string `yaml:"host"`
 	Port string `yaml:"port"`
+}
+
+type StorageConfig struct {
+	Inmemory int `yaml:"inmemory"`
+	Postgres int `yaml:"postgres"`
+	Redis    int `yaml:"redis"`
+}
+
+type PostgresConfig struct {
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	DBname   string `yaml:"dbname"`
+}
+
+type RedisConfig struct {
+	Addr     string `yaml:"address"`
+	Port     string `yaml:"port"`
+	Password string `yaml:"password"`
+	Db       int    `yaml:"db"`
 }
 
 func MustLoad() *Config {

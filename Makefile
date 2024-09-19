@@ -26,6 +26,8 @@ gen-auth:
 gen-chat:
 	protoc -I ./gen/protos ./gen/protos/chat_service.proto --go_out=./gen/ --go-grpc_out=./gen/
 
+gen-outbox:
+	protoc -I ./api/protos ./api/protos/outbox.proto --go_out=./api/ --go-grpc_out=.api/
 
 migrate-up:
 	migrate -path ./migrations -database 'postgres://postgres:password@localhost:5432/postgres?sslmode=disable' up

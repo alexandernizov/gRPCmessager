@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package outbox;
+
+option go_package="gen/outbox";
+
+message OutboxChat {
+    string uuid = 1;
+    string owner_uuid = 2;
+    bool readonly = 3;
+    string deadline = 4;
+}
+
+message OutboxMessage {
+    int64 id = 1;
+    string author_uuid = 2;
+    string body = 3;
+    string published = 4;
+}

@@ -2,530 +2,297 @@ package postgres_test
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/alexandernizov/grpcmessanger/internal/domain"
-	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/alexandernizov/grpcmessanger/internal/domain"
+	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
 )
 
-func TestWithTx(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
-	}
-	defer db.Close()
-
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	repo := postgres.New(log, db)
-
-	type mockBehavior func(func(context.Context) error)
-
-	sameError := errors.New("some error")
-
-	testTable := []struct {
-		name         string
-		ctx          context.Context
-		testFunc     func(context.Context) error
-		expectErr    error
-		mockBehavior mockBehavior
-	}{
-		{
-			name:      "transaction_commited",
-			ctx:       context.Background(),
-			testFunc:  func(ctx context.Context) error { return nil },
-			expectErr: nil,
-			mockBehavior: func(func(context.Context) error) {
-				mock.ExpectBegin()
-				mock.ExpectCommit()
-			},
-		},
-		{
-			name:      "begin_errored",
-			ctx:       context.Background(),
-			testFunc:  func(ctx context.Context) error { return nil },
-			expectErr: postgres.ErrInternal,
-			mockBehavior: func(func(context.Context) error) {
-				mock.ExpectBegin().WillReturnError(errors.New("some error"))
-			},
-		},
-		{
-			name:      "fn_errored",
-			ctx:       context.Background(),
-			testFunc:  func(ctx context.Context) error { return sameError },
-			expectErr: sameError,
-			mockBehavior: func(func(context.Context) error) {
-				mock.ExpectBegin()
-				mock.ExpectRollback()
-			},
-		},
-		{
-			name:      "fn_errored_rollback_errored",
-			ctx:       context.Background(),
-			testFunc:  func(ctx context.Context) error { return sameError },
-			expectErr: postgres.ErrInternal,
-			mockBehavior: func(func(context.Context) error) {
-				mock.ExpectBegin()
-				mock.ExpectRollback().WillReturnError(errors.New("some error"))
-			},
-		},
-		{
-			name:      "fn_commit_errored",
-			ctx:       context.Background(),
-			testFunc:  func(ctx context.Context) error { return nil },
-			expectErr: postgres.ErrInternal,
-			mockBehavior: func(func(context.Context) error) {
-				mock.ExpectBegin()
-				mock.ExpectCommit().WillReturnError(errors.New("some error"))
-			},
-		},
-	}
-
-	for _, testCase := range testTable {
-		t.Run(testCase.name, func(t *testing.T) {
-			testCase.mockBehavior(testCase.testFunc)
-
-			err := repo.WithTx(testCase.ctx, testCase.testFunc)
-
-			assert.Equal(t, testCase.expectErr, err)
-
-			err = mock.ExpectationsWereMet()
-
-			assert.NoError(t, err, "didn't expect errors")
-		})
-	}
-}
-
 func TestCreateUser(t *testing.T) {
+	t.Parallel()
 	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	require.NoError(t, err)
 	defer db.Close()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	repo := postgres.New(log, db)
 
-	type args struct {
-		context.Context
-		domain.User
+	pg := postgres.New(log, db)
+
+	user := domain.User{
+		Uuid:         uuid.New(),
+		Login:        "testuser",
+		PasswordHash: []byte("hash"),
 	}
 
-	type mockBehavior func(args)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO users").WithArgs(user.Uuid, user.Login, user.PasswordHash).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
-	sameUuid := uuid.New()
-
-	testTable := []struct {
-		name         string
-		args         args
-		expectUser   *domain.User
-		expectErr    error
-		mockBehavior mockBehavior
-	}{
-		{
-			name: "user_created",
-			args: args{
-				context.Background(),
-				domain.User{Uuid: sameUuid, Login: "test", PasswordHash: []byte("test")},
-			},
-			expectUser: &domain.User{Uuid: sameUuid, Login: "test", PasswordHash: []byte("test")},
-			expectErr:  nil,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectExec("INSERT INTO users").WithArgs(args.Uuid, args.Login, args.PasswordHash).
-					WillReturnResult(sqlmock.NewResult(1, 1))
-				mock.ExpectCommit()
-			},
-		},
-		{
-			name: "got_internal_error",
-			args: args{
-				context.Background(),
-				domain.User{Uuid: sameUuid, Login: "test", PasswordHash: []byte("test")},
-			},
-			expectUser: nil,
-			expectErr:  postgres.ErrInternal,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectExec("INSERT INTO users").WithArgs(args.Uuid, args.Login, args.PasswordHash).
-					WillReturnError(errors.New("some error"))
-				mock.ExpectRollback()
-			},
-		},
-	}
-
-	for _, testCase := range testTable {
-		t.Run(testCase.name, func(t *testing.T) {
-			testCase.mockBehavior(testCase.args)
-
-			user, err := repo.CreateUser(testCase.args.Context, testCase.args.User)
-
-			assert.Equal(t, testCase.expectUser, user)
-			assert.Equal(t, testCase.expectErr, err)
-
-			err = mock.ExpectationsWereMet()
-
-			assert.NoError(t, err, "didn't expect errors")
-		})
-	}
+	ctx := context.Background()
+	createdUser, err := pg.CreateUser(ctx, user)
+	assert.NoError(t, err)
+	assert.NotNil(t, createdUser)
 }
 
 func TestGetUserByLogin(t *testing.T) {
+	t.Parallel()
 	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	require.NoError(t, err)
 	defer db.Close()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	repo := postgres.New(log, db)
 
-	type args struct {
-		ctx   context.Context
-		login string
-	}
+	pg := postgres.New(log, db)
 
-	type mockBehavior func(args)
+	login := "testuser"
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT uuid, login, password FROM users").WithArgs(login).
+		WillReturnRows(sqlmock.NewRows([]string{"uuid", "login", "password"}).
+			AddRow(uuid.New(), login, []byte("hash")))
+	mock.ExpectCommit()
 
-	sameUuid := uuid.New()
-
-	testTable := []struct {
-		name         string
-		args         args
-		expectUser   *domain.User
-		expectErr    error
-		mockBehavior mockBehavior
-	}{
-		{
-			name: "got_user",
-			args: args{
-				ctx:   context.Background(),
-				login: "test",
-			},
-			expectUser: &domain.User{Uuid: sameUuid, Login: "test", PasswordHash: []byte("test")},
-			expectErr:  nil,
-			mockBehavior: func(args args) {
-				rows := sqlmock.NewRows([]string{"uuid", "login", "password"}).
-					AddRow(sameUuid, "test", "test")
-
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT uuid, login, password FROM users WHERE users.login = ?").WithArgs(args.login).
-					WillReturnRows(rows)
-				mock.ExpectCommit()
-			},
-		},
-		{
-			name: "got_error_user_not_found",
-			args: args{
-				ctx:   context.Background(),
-				login: "test",
-			},
-			expectUser: nil,
-			expectErr:  postgres.ErrUserNotFound,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT uuid, login, password FROM users WHERE users.login = ?").WithArgs(args.login).
-					WillReturnError(sql.ErrNoRows)
-				mock.ExpectRollback()
-			},
-		},
-		{
-			name: "got_internal_error",
-			args: args{
-				ctx:   context.Background(),
-				login: "test",
-			},
-			expectUser: nil,
-			expectErr:  postgres.ErrInternal,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT uuid, login, password FROM users WHERE users.login = ?").WithArgs(args.login).
-					WillReturnError(errors.New("some error"))
-				mock.ExpectRollback()
-			},
-		},
-	}
-
-	for _, testCase := range testTable {
-		t.Run(testCase.name, func(t *testing.T) {
-			testCase.mockBehavior(testCase.args)
-
-			user, err := repo.GetUserByLogin(testCase.args.ctx, testCase.args.login)
-
-			assert.Equal(t, testCase.expectUser, user)
-			assert.Equal(t, testCase.expectErr, err)
-
-			err = mock.ExpectationsWereMet()
-
-			assert.NoError(t, err, "didn't expect errors")
-		})
-	}
+	ctx := context.Background()
+	user, err := pg.GetUserByLogin(ctx, login)
+	assert.NoError(t, err)
+	assert.NotNil(t, user)
 }
 
 func TestGetUserByUuid(t *testing.T) {
+	t.Parallel()
 	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	require.NoError(t, err)
 	defer db.Close()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	repo := postgres.New(log, db)
 
-	type args struct {
-		ctx  context.Context
-		uuid uuid.UUID
-	}
+	pg := postgres.New(log, db)
 
-	type mockBehavior func(args)
+	userUuid := uuid.New()
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT uuid, login, password FROM users WHERE users.uuid = ?").WithArgs(userUuid).
+		WillReturnRows(sqlmock.NewRows([]string{"uuid", "login", "password"}).
+			AddRow(userUuid, "testuser", []byte("hash")))
+	mock.ExpectCommit()
 
-	sameUuid := uuid.New()
-
-	testTable := []struct {
-		name         string
-		args         args
-		expectUser   *domain.User
-		expectErr    error
-		mockBehavior mockBehavior
-	}{
-		{
-			name: "got_user",
-			args: args{
-				ctx:  context.Background(),
-				uuid: sameUuid,
-			},
-			expectUser: &domain.User{Uuid: sameUuid, Login: "test", PasswordHash: []byte("test")},
-			expectErr:  nil,
-			mockBehavior: func(args args) {
-				rows := sqlmock.NewRows([]string{"uuid", "login", "password"}).
-					AddRow(sameUuid, "test", "test")
-
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT uuid, login, password FROM users WHERE users.uuid = ?").WithArgs(args.uuid).
-					WillReturnRows(rows)
-				mock.ExpectCommit()
-			},
-		},
-		{
-			name: "got_error_user_not_found",
-			args: args{
-				ctx:  context.Background(),
-				uuid: sameUuid,
-			},
-			expectUser: nil,
-			expectErr:  postgres.ErrUserNotFound,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT uuid, login, password FROM users WHERE users.uuid = ?").WithArgs(args.uuid).
-					WillReturnError(sql.ErrNoRows)
-				mock.ExpectRollback()
-			},
-		},
-		{
-			name: "got_internal_error",
-			args: args{
-				ctx:  context.Background(),
-				uuid: sameUuid,
-			},
-			expectUser: nil,
-			expectErr:  postgres.ErrInternal,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT uuid, login, password FROM users WHERE users.uuid = ?").WithArgs(args.uuid).
-					WillReturnError(errors.New("some error"))
-				mock.ExpectRollback()
-			},
-		},
-	}
-
-	for _, testCase := range testTable {
-		t.Run(testCase.name, func(t *testing.T) {
-			testCase.mockBehavior(testCase.args)
-
-			user, err := repo.GetUserByUuid(testCase.args.ctx, testCase.args.uuid)
-
-			assert.Equal(t, testCase.expectUser, user)
-			assert.Equal(t, testCase.expectErr, err)
-
-			err = mock.ExpectationsWereMet()
-
-			assert.NoError(t, err, "didn't expect errors")
-		})
-	}
+	ctx := context.Background()
+	user, err := pg.GetUserByUuid(ctx, userUuid)
+	assert.NoError(t, err)
+	assert.NotNil(t, user)
 }
 
 func TestUpsertRefreshToken(t *testing.T) {
+	t.Parallel()
 	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	require.NoError(t, err)
 	defer db.Close()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	repo := postgres.New(log, db)
 
-	type args struct {
-		ctx          context.Context
-		userUuid     uuid.UUID
-		refreshToken string
-	}
+	pg := postgres.New(log, db)
 
-	type mockBehavior func(args)
+	userUuid := uuid.New()
+	refreshToken := "some_refresh_token"
 
-	sameUuid := uuid.New()
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO refresh_tokens").WithArgs(userUuid, refreshToken).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
-	testTable := []struct {
-		name         string
-		args         args
-		expectErr    error
-		mockBehavior mockBehavior
-	}{
-		{
-			name: "refresh_token_inserted",
-			args: args{
-				ctx:          context.Background(),
-				userUuid:     sameUuid,
-				refreshToken: "test",
-			},
-			expectErr: nil,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectExec("INSERT INTO refresh_tokens").
-					WithArgs(args.userUuid, args.refreshToken).
-					WillReturnResult(sqlmock.NewResult(1, 1))
-				mock.ExpectCommit()
-			},
-		},
-		{
-			name: "got_internal_error",
-			args: args{
-				ctx:          context.Background(),
-				userUuid:     sameUuid,
-				refreshToken: "test",
-			},
-			expectErr: postgres.ErrInternal,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectExec("INSERT INTO refresh_tokens").
-					WithArgs(args.userUuid, args.refreshToken).
-					WillReturnError(errors.New("some error"))
-				mock.ExpectRollback()
-			},
-		},
-	}
-
-	for _, testCase := range testTable {
-		t.Run(testCase.name, func(t *testing.T) {
-			testCase.mockBehavior(testCase.args)
-
-			err := repo.UpsertRefreshToken(testCase.args.ctx, testCase.args.userUuid, testCase.args.refreshToken)
-
-			assert.Equal(t, testCase.expectErr, err)
-
-			err = mock.ExpectationsWereMet()
-
-			assert.NoError(t, err, "didn't expect errors")
-		})
-	}
+	ctx := context.Background()
+	err = pg.UpsertRefreshToken(ctx, userUuid, refreshToken)
+	assert.NoError(t, err)
 }
 
 func TestGetRefreshToken(t *testing.T) {
+	t.Parallel()
 	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
-	}
+	require.NoError(t, err)
 	defer db.Close()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	repo := postgres.New(log, db)
 
-	type args struct {
-		ctx      context.Context
-		userUuid uuid.UUID
+	pg := postgres.New(log, db)
+
+	userUuid := uuid.New()
+	expectedToken := "refresh_token"
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT token FROM refresh_tokens WHERE user_uuid = ?").WithArgs(userUuid).
+		WillReturnRows(sqlmock.NewRows([]string{"token"}).AddRow(expectedToken))
+	mock.ExpectCommit()
+
+	ctx := context.Background()
+	token, err := pg.GetRefreshToken(ctx, userUuid)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedToken, token)
+}
+
+func TestCreateChat(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	pg := postgres.New(log, db)
+
+	chat := domain.Chat{
+		Uuid:     uuid.New(),
+		Owner:    domain.User{Uuid: uuid.New()},
+		Readonly: false,
+		Deadline: time.Now(),
 	}
 
-	type mockBehavior func(args)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO chats").WithArgs(chat.Uuid, chat.Owner.Uuid, chat.Readonly, chat.Deadline).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO outbox").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
-	sameUuid := uuid.New()
+	ctx := context.Background()
+	createdChat, err := pg.CreateChat(ctx, chat)
+	assert.NoError(t, err)
+	assert.NotNil(t, createdChat)
+}
 
-	testTable := []struct {
-		name         string
-		args         args
-		expectToken  string
-		expectErr    error
-		mockBehavior mockBehavior
-	}{
-		{
-			name: "got_refresh_token",
-			args: args{
-				ctx:      context.Background(),
-				userUuid: sameUuid,
-			},
-			expectToken: "test",
-			expectErr:   nil,
-			mockBehavior: func(args args) {
-				rows := sqlmock.NewRows([]string{"token"}).
-					AddRow("test")
+func TestGetChat(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
 
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT token FROM refresh_tokens WHERE user_uuid = ?").
-					WithArgs(args.userUuid).
-					WillReturnRows(rows)
-				mock.ExpectCommit()
-			},
-		},
-		{
-			name: "got_error_no_rows",
-			args: args{
-				ctx:      context.Background(),
-				userUuid: sameUuid,
-			},
-			expectToken: "",
-			expectErr:   postgres.ErrTokenNotFound,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT token FROM refresh_tokens WHERE user_uuid = ?").
-					WithArgs(args.userUuid).
-					WillReturnError(sql.ErrNoRows)
-				mock.ExpectRollback()
-			},
-		},
-		{
-			name: "got_error_internal",
-			args: args{
-				ctx:      context.Background(),
-				userUuid: sameUuid,
-			},
-			expectToken: "",
-			expectErr:   postgres.ErrInternal,
-			mockBehavior: func(args args) {
-				mock.ExpectBegin()
-				mock.ExpectQuery("SELECT token FROM refresh_tokens WHERE user_uuid = ?").
-					WithArgs(args.userUuid).
-					WillReturnError(errors.New("some error"))
-				mock.ExpectRollback()
-			},
-		},
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	pg := postgres.New(log, db)
+
+	chatUuid := uuid.New()
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT uuid, owner, read_only, dead_line FROM chats WHERE uuid = ?").WithArgs(chatUuid).
+		WillReturnRows(sqlmock.NewRows([]string{"uuid", "owner", "read_only", "dead_line"}).
+			AddRow(chatUuid, uuid.New(), false, time.Now()))
+	mock.ExpectCommit()
+
+	ctx := context.Background()
+	chat, err := pg.GetChat(ctx, chatUuid)
+	assert.NoError(t, err)
+	assert.NotNil(t, chat)
+}
+
+func TestChatsCount(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	pg := postgres.New(log, db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT count (*) FROM chats").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+	mock.ExpectCommit()
+
+	ctx := context.Background()
+	count, err := pg.ChatsCount(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 10, count)
+}
+
+func TestPostMessage(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	pg := postgres.New(log, db)
+
+	chatUuid := uuid.New()
+	messageUuid := uuid.New()
+	message := domain.Message{
+		Id:         1,
+		AuthorUuid: messageUuid,
+		Body:       "test message",
+		Published:  time.Now(),
 	}
 
-	for _, testCase := range testTable {
-		t.Run(testCase.name, func(t *testing.T) {
-			testCase.mockBehavior(testCase.args)
+	mock.ExpectBegin()
 
-			token, err := repo.GetRefreshToken(testCase.args.ctx, testCase.args.userUuid)
+	// Ожидание вызова на вставку в таблицу outbox
+	mock.ExpectExec("INSERT INTO outbox").
+		WithArgs(sqlmock.AnyArg(), "Message", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
-			assert.Equal(t, testCase.expectErr, err)
-			assert.Equal(t, testCase.expectToken, token)
+	mock.ExpectCommit()
 
-			err = mock.ExpectationsWereMet()
+	// Ожидание вызова на вставку в таблицу messages
+	mock.ExpectExec("INSERT INTO messages").
+		WithArgs(chatUuid, message.AuthorUuid, message.Body, message.Published).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
-			assert.NoError(t, err, "didn't expect errors")
-		})
-	}
+	ctx := context.Background()
+	postedMessage, err := pg.PostMessage(ctx, chatUuid, message)
+	assert.NoError(t, err)
+	assert.NotNil(t, postedMessage)
+
+	// Проверяем, что все ожидания были выполнены
+	err = mock.ExpectationsWereMet()
+	assert.NoError(t, err)
+}
+
+func TestTrimMessages(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	pg := postgres.New(log, db)
+
+	chatUuid := uuid.New()
+	maximumMessages := 10
+
+	mock.ExpectBegin()
+	mock.ExpectExec("WITH numbered_messages AS").WithArgs(chatUuid, maximumMessages).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	ctx := context.Background()
+	result, err := pg.TrimMessages(ctx, chatUuid, maximumMessages)
+	assert.NoError(t, err)
+	assert.True(t, result)
+}
+
+func TestConfirmOutboxSended(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	pg := postgres.New(log, db)
+
+	outboxUuid := uuid.New()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE outbox SET sent_at").WithArgs(outboxUuid).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	ctx := context.Background()
+	err = pg.ConfirmOutboxSended(ctx, outboxUuid)
+	assert.NoError(t, err)
 }

@@ -7,24 +7,31 @@ CREATE TABLE users
 
 CREATE TABLE refresh_tokens
 (
-    user_uuid UUID PRIMARY KEY REFERENCES users (uuid),
+    user_uuid UUID PRIMARY KEY REFERENCES users (uuid) ON DELETE CASCADE,
     token VARCHAR(255) NOT NULL
 );
 
-CREATE TABLE outbox_chats
+CREATE TABLE chats
 (
-    id SERIAL PRIMARY KEY,
-    chat UUID NOT NULL,
-    author UUID NOT NULL,
+    uuid UUID PRIMARY KEY,
+    owner UUID NOT NULL,
     read_only BOOLEAN NOT NULL,
-    sent_to_kafka TIMESTAMP
+    dead_line TIMESTAMP NOT NULL
 );
 
-CREATE TABLE outbox_messages
-(
+CREATE TABLE messages
+(   
     id SERIAL PRIMARY KEY,
-    author UUID NOT NULL,
+    chat_uuid UUID NOT NULL REFERENCES chats (uuid) ON DELETE CASCADE,
+    author_uuid UUID NOT NULL REFERENCES users (uuid) ON DELETE CASCADE,
     body VARCHAR(255) NOT NULL,
-    published TIMESTAMP NOT NULL,
-    sent_to_kafka TIMESTAMP
+    published TIMESTAMP NOT NULL
+);
+
+CREATE TABLE outbox
+(   
+    uuid UUID PRIMARY KEY,
+    topic VARCHAR(255) NOT NULL,
+    message VARCHAR(255) NOT NULL,
+    sent_at TIMESTAMP
 );

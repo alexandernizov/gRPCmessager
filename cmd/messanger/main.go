@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -10,9 +11,9 @@ import (
 	"github.com/alexandernizov/grpcmessanger/internal/grpc"
 	"github.com/alexandernizov/grpcmessanger/internal/http"
 	"github.com/alexandernizov/grpcmessanger/internal/outbox"
-	"github.com/alexandernizov/grpcmessanger/internal/pkg/logger/sl"
 	"github.com/alexandernizov/grpcmessanger/internal/services/auth"
 	"github.com/alexandernizov/grpcmessanger/internal/services/chat"
+	"github.com/alexandernizov/grpcmessanger/internal/storage/inmemory"
 	"github.com/alexandernizov/grpcmessanger/internal/storage/postgres"
 	"github.com/alexandernizov/grpcmessanger/internal/storage/redis"
 )
@@ -30,44 +31,56 @@ func main() {
 	log := setupLogger(cfg.Env)
 	log.Info("starting application", slog.String("env", cfg.Env))
 
-	//Connect postgres
-	pgOpt := postgres.ConnectOptions{
-		Host:     cfg.Postgres.Host,
-		Port:     cfg.Postgres.Port,
-		User:     cfg.Postgres.User,
-		Password: cfg.Postgres.Password,
-		DBname:   cfg.Postgres.DBname,
+	//Storages
+	var authStorage auth.AuthStorage
+	var chatStorage chat.ChatStorage
+	var notifyStorage outbox.OutboxProvider
+
+	//InmemoryStorage
+	if cfg.Storage.Inmemory > 0 {
+		storage := inmemory.New(log)
+		authStorage = storage
+		chatStorage = storage
+		notifyStorage = storage
 	}
-	pgDB, err := postgres.NewWithOptions(log, pgOpt)
-	if err != nil {
-		panic("can't connect to postgres")
+
+	//PostgresStorage
+	if cfg.Storage.Postgres > 0 {
+		pgOpt := postgres.ConnectOptions{
+			Host:     cfg.Postgres.Host,
+			Port:     cfg.Postgres.Port,
+			User:     cfg.Postgres.User,
+			Password: cfg.Postgres.Password,
+			DBname:   cfg.Postgres.DBname,
+		}
+		pgDB, err := postgres.NewWithOptions(log, pgOpt)
+		if err != nil {
+			panic("can't connect to postgres")
+		}
+		authStorage = pgDB
+		chatStorage = pgDB
+		notifyStorage = pgDB
+	}
+
+	//RedisStorage
+	if cfg.Storage.Redis > 0 {
+		redisOpt := redis.ConnectOptions{
+			Addr:     cfg.Redis.Addr + ":" + cfg.Redis.Port,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.Db,
+		}
+		redisDB, err := redis.New(log, redisOpt)
+		if err != nil {
+			panic("can't connect to redis")
+		}
+		authStorage = redisDB
+		chatStorage = redisDB
+		notifyStorage = redisDB
 	}
 
 	//Auth Service
 	jwt := auth.JwtParams{AccessTtl: cfg.User.JwtAccessTTL, RefreshTtl: cfg.User.JwtRefreshTTL, Secret: []byte(cfg.User.JwtSecret)}
-	authService := auth.New(log, pgDB, jwt)
-
-	//Connect redis
-	redisOpt := redis.ConnectOptions{
-		Addr:     cfg.Redis.Addr + ":" + cfg.Redis.Port,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.Db,
-	}
-	redisDB, err := redis.New(log, redisOpt)
-	if err != nil {
-		panic("can't connect to redis")
-	}
-
-	//Notifier Service
-	kafkaOpt := outbox.ConnectOptions{
-		Host: cfg.Kafka.Host,
-		Port: cfg.Kafka.Port,
-	}
-	notifier, err := outbox.New(log, pgDB, pgDB, kafkaOpt)
-	if err != nil {
-		log.Info("failed to connect to kafka", sl.Err(err))
-	}
-	notifier.ServePublish()
+	authService := auth.New(log, authStorage, jwt)
 
 	//Chat Service
 	chatOpt := chat.ChatOptions{
@@ -75,7 +88,16 @@ func main() {
 		MaximumCount:    cfg.Chat.MaxChatsCount,
 		MaximumMessages: cfg.Chat.MaxMessagesPerChat,
 	}
-	chatService := chat.New(log, chatOpt, redisDB, pgDB)
+	chatService := chat.New(log, chatOpt, chatStorage)
+
+	//Notifier Service
+	brokers := []string{cfg.Kafka.Host + ":" + cfg.Kafka.Port}
+	publisher, err := outbox.New(log, notifyStorage, brokers)
+	if err != nil {
+		fmt.Println("can't start publisher")
+		os.Exit(1)
+	}
+	publisher.Start()
 
 	//Start Grpc Server
 	server := grpc.NewServer(log)
@@ -104,8 +126,9 @@ func main() {
 
 	<-stop
 	log.Info("stopping application")
-	//	httpServer.Stop()
+	httpServer.Stop()
 	server.Stop()
+	publisher.Stop()
 	log.Info("application stopped")
 }
 

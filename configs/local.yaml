@@ -15,9 +15,18 @@ chat:
   chat_ttl: 30s
 
 user:
-  jwt_access_ttl: 5m
-  jwt_refresh_ttl: 1h
+  jwt_access_ttl: 100000h
+  jwt_refresh_ttl: 100000h
   jwt_secret: adshasdhajsduasdjansdamzxnnzxjhahdquwendxzc82
+
+kafka:
+  host: "0.0.0.0"
+  port: "9092"
+
+storage:
+  inmemory: 0
+  postgres: 0
+  redis: 1
 
 postgres:
   host: "0.0.0.0"
@@ -31,7 +40,3 @@ redis:
   port: "6379"
   password: ""
   db: 0
-
-kafka:
-  host: "0.0.0.0"
-  port: "9092"
