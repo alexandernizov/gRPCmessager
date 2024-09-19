@@ -19,6 +19,15 @@ user:
   jwt_refresh_ttl: 1h
   jwt_secret: adshasdhajsduasdjansdamzxnnzxjhahdquwendxzc82
 
+kafka:
+  host: "kafka"
+  port: "9093"
+
+storage:
+  inmemory: 0
+  postgres: 0
+  redis: 1
+
 postgres:
   host: "postgres"
   port: "5432"
@@ -31,7 +40,3 @@ redis:
   port: "6379"
   password: ""
   db: 0
-
-kafka:
-  host: "kafka"
-  port: "9093"
