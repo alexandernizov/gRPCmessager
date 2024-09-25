@@ -36,9 +36,6 @@ const (
 	refreshTokens  = "refreshToken:"
 	outboxList     = "outboxList:"
 	outboxMessage  = "outboxMessage:"
-
-	chatTopic    = "chats"
-	messageTopic = "messages"
 )
 
 func New(log *slog.Logger, opt ConnectOptions) (*Redis, error) {
@@ -112,7 +109,7 @@ func (r *Redis) CreateChat(ctx context.Context, chat domain.Chat) (*domain.Chat,
 	}
 
 	forSending := OutboxMessage{
-		Topic:   chatTopic,
+		Topic:   domain.ChatTopic,
 		Message: marshalledMessage,
 	}
 
@@ -181,7 +178,7 @@ func (r *Redis) PostMessage(ctx context.Context, chat uuid.UUID, message domain.
 	}
 
 	forSending := OutboxMessage{
-		Topic:   messageTopic,
+		Topic:   domain.MessageTopic,
 		Message: marshalledMessage,
 	}
 

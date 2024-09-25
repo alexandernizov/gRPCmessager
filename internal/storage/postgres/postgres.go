@@ -40,9 +40,6 @@ const (
 	chatsTable         = "chats"
 	messagesTable      = "messages"
 	outboxTable        = "outbox"
-
-	chatTopic    = "Chat"
-	messageTopic = "Message"
 )
 
 func New(log *slog.Logger, db *sql.DB) *Postgres {
@@ -289,7 +286,7 @@ func (p *Postgres) CreateChat(ctx context.Context, chat domain.Chat) (*domain.Ch
 	query1 := fmt.Sprintf("INSERT INTO %s (uuid, owner, read_only, dead_line) VALUES ($1,$2,$3,$4)", chatsTable)
 	query2 := fmt.Sprintf("INSERT INTO %s (uuid, topic, message) VALUES ($1,$2,$3)", outboxTable)
 	_, err = tx.Exec(query1, pgChat.Uuid, pgChat.Owner, pgChat.ReadOnly, pgChat.Deadline)
-	_, err = tx.Exec(query2, chat.Uuid, chatTopic, marshalledMessage)
+	_, err = tx.Exec(query2, chat.Uuid, domain.ChatTopic, marshalledMessage)
 
 	closeTx(err)
 
@@ -374,7 +371,7 @@ func (p *Postgres) PostMessage(ctx context.Context, chat uuid.UUID, message doma
 	query2 := fmt.Sprintf("INSERT INTO %s (uuid, topic, message) VALUES ($1,$2,$3)", outboxTable)
 
 	_, err = tx.Exec(query1, pgMessage.ChatUuid, pgMessage.AuthorUuid, pgMessage.Body, pgMessage.Published)
-	_, err = tx.Exec(query2, uuid.New(), messageTopic, marshalledMessage)
+	_, err = tx.Exec(query2, uuid.New(), domain.MessageTopic, marshalledMessage)
 	closeTx(err)
 
 	if err != nil {

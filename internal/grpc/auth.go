@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+//go:generate go run github.com/vektra/mockery/v2@v2.20.2 --name AuthProvider
 type AuthProvider interface {
 	Register(ctx context.Context, login, password string) (*domain.User, error)
 	Login(ctx context.Context, login, password string) (*domain.Tokens, error)

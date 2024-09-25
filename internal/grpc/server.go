@@ -20,8 +20,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-//go:generate protoc -I ../../api/protos ../../api/protos/auth_service.proto --go_out=../../api/ --go-grpc_out=../../api/ --grpc-gateway_out=../../api/
-//go:generate protoc -I ../../api/protos ../../api/protos/chat_service.proto --go_out=../../api/ --go-grpc_out=../../api/ --grpc-gateway_out=../../api/
+////go:generate protoc -I ../../api/protos ../../api/protos/auth_service.proto --go_out=../../api/ --go-grpc_out=../../api/ --grpc-gateway_out=../../api/
+////go:generate protoc -I ../../api/protos ../../api/protos/chat_service.proto --go_out=../../api/ --go-grpc_out=../../api/ --grpc-gateway_out=../../api/
 
 var (
 	ErrServerIsAlreadyRunning = errors.New("server is already running")

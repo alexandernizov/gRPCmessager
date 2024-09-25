@@ -153,7 +153,7 @@ func (i *Inmemory) CreateChat(ctx context.Context, chat domain.Chat) (*domain.Ch
 	}
 
 	i.chats = append(i.chats, newChat)
-	i.outboxes = append(i.outboxes, Outbox{uuid: uuid.New(), topic: "Chats", message: marshalledMessage})
+	i.outboxes = append(i.outboxes, Outbox{uuid: uuid.New(), topic: domain.ChatTopic, message: marshalledMessage})
 
 	return &chat, nil
 }
@@ -216,7 +216,7 @@ func (i *Inmemory) PostMessage(ctx context.Context, chat uuid.UUID, message doma
 	}
 
 	i.messages = append(i.messages, newMessage)
-	i.outboxes = append(i.outboxes, Outbox{uuid: uuid.New(), topic: "Messages", message: marshalledMessage})
+	i.outboxes = append(i.outboxes, Outbox{uuid: uuid.New(), topic: domain.MessageTopic, message: marshalledMessage})
 
 	return &domain.Message{Id: newMessage.Id, AuthorUuid: newMessage.AuthorUuid, Body: newMessage.Body, Published: newMessage.Published}, nil
 }
