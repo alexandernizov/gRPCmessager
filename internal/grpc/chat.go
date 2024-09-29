@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+//go:generate go run github.com/vektra/mockery/v2@v2.20.2 --name ChatProvider
 type ChatProvider interface {
 	NewChat(ctx context.Context, ownerUuid uuid.UUID, readonly bool, ttl int) (*domain.Chat, error)
 	NewMessage(ctx context.Context, chatUuid uuid.UUID, authorUuid uuid.UUID, message string) (*domain.Message, error)
@@ -48,11 +49,11 @@ func (c *ChatServer) NewChat(ctx context.Context, req *chatpb.NewChatReq) (*chat
 }
 
 func (c *ChatServer) NewMessage(ctx context.Context, req *chatpb.NewMessageReq) (*chatpb.NewMessageResp, error) {
-	if len(req.ChatUuid) == 0 {
+	if req.ChatUuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "Chat UUID is required")
 	}
 
-	if len(req.Message) == 0 {
+	if req.Message == "" {
 		return nil, status.Error(codes.InvalidArgument, "Message is required")
 	}
 
@@ -84,7 +85,7 @@ func (c *ChatServer) NewMessage(ctx context.Context, req *chatpb.NewMessageReq) 
 }
 
 func (c *ChatServer) ChatHistory(ctx context.Context, req *chatpb.ChatHistoryReq) (*chatpb.ChatHistoryResp, error) {
-	if len(req.Uuid) == 0 {
+	if req.Uuid == "" {
 		return nil, status.Error(codes.InvalidArgument, "Chat UUID is required")
 	}
 

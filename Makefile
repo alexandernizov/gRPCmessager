@@ -16,14 +16,13 @@ build:
 	echo "Building messanger-app"
 	GOOS=linux GOARCH=amd64 CC=x86_64-linux-musl-gcc go build -o messanger ./cmd/messanger
 
-rebuild: build-docker up
-
 restart:
 	docker-compose down
 	docker rmi grpcmessager-messanger:latest || true
 	docker-compose build
 	docker-compose up -d
 
+rebuild: build restart
 
 generate:
 	go generate ./...

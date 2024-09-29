@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
+//go:generate go run github.com/vektra/mockery/v2@v2.20.2 --name ChatStorage
 type ChatStorage interface {
 	CreateChat(ctx context.Context, chat domain.Chat) (*domain.Chat, error)
 	GetChat(ctx context.Context, chatUuid uuid.UUID) (*domain.Chat, error)
